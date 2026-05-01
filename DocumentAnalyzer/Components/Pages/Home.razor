@@ -2,7 +2,9 @@
 @rendermode InteractiveServer
 @using Azure
 @using DocumentAnalyzer.Services
+@implements IAsyncDisposable
 @inject DocumentIntelligenceService DocumentIntelligenceService
+@inject IJSRuntime Js
 
 <PageTitle>Home</PageTitle>
 
@@ -23,7 +25,7 @@
 		</div>
 
 		<div class="upload-row">
-			<InputFile class="form-control" OnChange="OnFileSelected" accept="application/pdf,.pdf" />
+			<InputFile id="invoice-pdf-input" class="form-control" OnChange="OnFileSelected" accept="application/pdf,.pdf" />
 			<button class="btn btn-primary analyze-button"
 					@onclick="AnalyzeAsync"
 					disabled="@(!HasSelectedFile || _isAnalyzing)">
@@ -88,7 +90,7 @@
 					<h2 class="section-title mb-0">Documento</h2>
 					@if (_analysisResult.Pages.Count > 1)
 					{
-						<select class="form-select form-select-sm page-select" @bind="_selectedPageNumber" @bind:after="UpdateCurrentPage" aria-label="Seleccion de pagina">
+						<select class="form-select form-select-sm page-select" @bind="_selectedPageNumber" @bind:after="UpdateCurrentPageAsync" aria-label="Seleccion de pagina">
 							@foreach (DocumentPagePreview previewPage in _analysisResult.Pages)
 							{
 								<option value="@previewPage.PageNumber">Pagina @previewPage.PageNumber</option>
@@ -99,13 +101,9 @@
 
 				<div class="doc-surface">
 					<div class="doc-stage" style="@PageAspectStyle(_currentPage)">
-						@foreach (DocumentWordPreview word in _currentPage.Words)
-						{
-							<span class="ocr-word-html" style="@WordStyle(word, _currentPage)">@word.Content</span>
-						}
+						<canvas id="pdf-page-canvas" class="pdf-canvas" role="img" aria-label="Pagina original renderizada del PDF"></canvas>
 
-						<svg class="overlay-svg" viewBox="@SvgViewBox(_currentPage)" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Vista reconstruida del documento">
-							<rect x="0" y="0" width="@_currentPage.Width" height="@_currentPage.Height" fill="#ffffff" />
+						<svg class="overlay-svg" viewBox="@SvgViewBox(_currentPage)" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Campos detectados sobre el PDF original">
 
 							@foreach (DocumentFieldOverlay field in _analysisResult.Fields.Where(field => field.PageNumber == _selectedPageNumber))
 							{
@@ -166,6 +164,9 @@
 	private int _selectedPageNumber = 1;
 	private List<DocumentFieldOverlay> _visibleFields = [];
 	private readonly Dictionary<string, string> _fieldColors = new(StringComparer.Ordinal);
+	private IJSObjectReference? _homeModule;
+	private bool _isJsReady;
+	private bool _pendingPdfRender;
 	private bool HasSelectedFile => _selectedFile is not null;
 	private bool HasResult => _analysisResult is not null && _currentPage is not null;
 	private int TotalPages => _analysisResult?.Pages.Count ?? 0;
@@ -195,6 +196,7 @@
 		_currentPage = null;
 		_visibleFields = [];
 		_fieldColors.Clear();
+		_pendingPdfRender = false;
 	}
 
 	private async Task AnalyzeAsync()
@@ -226,7 +228,7 @@
 			{
 				_selectedPageNumber = _analysisResult.Pages[0].PageNumber;
 				AssignFieldColors(_analysisResult.Fields);
-				UpdateCurrentPage();
+				await UpdateCurrentPageAsync();
 			}
 		}
 		catch (IOException)
@@ -247,12 +249,13 @@
 		}
 	}
 
-	private void UpdateCurrentPage()
+	private async Task UpdateCurrentPageAsync()
 	{
 		if (_analysisResult is null)
 		{
 			_currentPage = null;
 			_visibleFields = [];
+			_pendingPdfRender = false;
 			return;
 		}
 
@@ -261,6 +264,56 @@
 			.Where(field => field.PageNumber == _selectedPageNumber)
 			.OrderBy(field => field.Name)
 			.ToList();
+
+		_pendingPdfRender = _currentPage is not null;
+		await InvokeAsync(StateHasChanged);
+	}
+
+	protected override async Task OnAfterRenderAsync(bool firstRender)
+	{
+		if (firstRender)
+		{
+			_homeModule = await Js.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/Home.razor.js");
+			_isJsReady = true;
+		}
+
+		if (_pendingPdfRender && HasResult)
+		{
+			await RenderPdfPageAsync();
+		}
+	}
+
+	private async Task RenderPdfPageAsync()
+	{
+		if (!HasResult || !HasSelectedFile)
+		{
+			return;
+		}
+
+		if (!_isJsReady || _homeModule is null)
+		{
+			_pendingPdfRender = true;
+			return;
+		}
+
+		_pendingPdfRender = false;
+
+		try
+		{
+			await _homeModule.InvokeVoidAsync("renderPageFromInput", "invoice-pdf-input", "pdf-page-canvas", _selectedPageNumber);
+		}
+		catch (JSException ex)
+		{
+			_errorMessage = $"No se pudo renderizar el PDF en pantalla: {ex.Message}";
+		}
+	}
+
+	public async ValueTask DisposeAsync()
+	{
+		if (_homeModule is not null)
+		{
+			await _homeModule.DisposeAsync();
+		}
 	}
 
 	private void AssignFieldColors(IEnumerable<DocumentFieldOverlay> fields)
@@ -300,18 +353,6 @@
 		return FormattableString.Invariant($"aspect-ratio: {page.Width}/{page.Height};");
 	}
 
-	private static string WordStyle(DocumentWordPreview word, DocumentPagePreview page)
-	{
-		if (word.Polygon.Count < 2 || page.Width <= 0 || page.Height <= 0)
-		{
-			return string.Empty;
-		}
-
-		double left = (word.Polygon[0] / page.Width) * 100;
-		double top = (word.Polygon[1] / page.Height) * 100;
-
-		return FormattableString.Invariant($"left: {left:F4}%; top: {top:F4}%;");
-	}
 
 	private static string FormatConfidence(float? confidence)
 	{
