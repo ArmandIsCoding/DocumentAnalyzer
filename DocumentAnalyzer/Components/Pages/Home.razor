@@ -1,0 +1,252 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@using Azure
+@using DocumentAnalyzer.Services
+@inject DocumentIntelligenceService DocumentIntelligenceService
+
+<PageTitle>Home</PageTitle>
+
+<h1>Analizar PDF con Azure Document Intelligence</h1>
+
+<p>Sube una factura PDF para ver una vista tipo Studio con recuadros por campo y confianza.</p>
+
+<InputFile OnChange="OnFileSelected" accept="application/pdf,.pdf" />
+
+<div class="mt-3">
+	<button class="btn btn-primary"
+			@onclick="AnalyzeAsync"
+			disabled="@(_selectedFile is null || _isAnalyzing)">
+		@(_isAnalyzing ? "Analizando..." : "Analizar PDF")
+	</button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_selectedFileName))
+{
+	<p class="mt-3"><strong>Archivo:</strong> @_selectedFileName</p>
+}
+
+@if (!string.IsNullOrWhiteSpace(_errorMessage))
+{
+	<div class="alert alert-danger mt-3" role="alert">
+		@_errorMessage
+	</div>
+}
+
+@if (_analysisResult is not null && _currentPage is not null)
+{
+	<div class="studio-layout mt-4">
+		<section>
+			<div class="d-flex justify-content-between align-items-center mb-2">
+				<h2 class="h4 mb-0">Documento</h2>
+				@if (_analysisResult.Pages.Count > 1)
+				{
+					<select class="form-select form-select-sm page-select" @bind="_selectedPageNumber" @bind:after="UpdateCurrentPage">
+						@foreach (DocumentPagePreview previewPage in _analysisResult.Pages)
+						{
+							<option value="@previewPage.PageNumber">Página @previewPage.PageNumber</option>
+						}
+					</select>
+				}
+			</div>
+
+			<div class="doc-surface">
+				<div class="doc-stage" style="@PageAspectStyle(_currentPage)">
+					@foreach (DocumentWordPreview word in _currentPage.Words)
+					{
+						<span class="ocr-word-html" style="@WordStyle(word, _currentPage)">@word.Content</span>
+					}
+
+					<svg class="overlay-svg" viewBox="@SvgViewBox(_currentPage)" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Vista reconstruida del documento">
+						<rect x="0" y="0" width="@_currentPage.Width" height="@_currentPage.Height" fill="#ffffff" />
+
+						@foreach (DocumentFieldOverlay field in _analysisResult.Fields.Where(field => field.PageNumber == _selectedPageNumber))
+						{
+							<polygon class="field-polygon"
+									 points="@PolygonToSvgPoints(field.Polygon)"
+									 fill="@GetFieldColor(field.Name)"
+									 stroke="@GetFieldColor(field.Name)" />
+						}
+					</svg>
+				</div>
+			</div>
+		</section>
+
+		<section>
+			<h2 class="h4 mb-2">Campos extraidos</h2>
+
+			@if (!_visibleFields.Any())
+			{
+				<p class="text-muted">No se encontraron campos con coordenadas para esta página.</p>
+			}
+			else
+			{
+				@foreach (DocumentFieldOverlay field in _visibleFields)
+				{
+					<article class="field-item" style="--field-color: @GetFieldColor(field.Name)">
+						<div class="field-head">
+							<div class="field-dot"></div>
+							<strong>@field.Name</strong>
+						</div>
+						<p class="field-content">@(string.IsNullOrWhiteSpace(field.Content) ? "Sin contenido" : field.Content)</p>
+						<div class="field-confidence">Confianza: @FormatConfidence(field.Confidence)</div>
+					</article>
+				}
+			}
+		</section>
+	</div>
+
+	<details class="mt-4">
+		<summary>Ver JSON crudo</summary>
+		<pre class="p-3 border rounded bg-light mt-2 json-view">@_analysisResult.RawJson</pre>
+	</details>
+}
+
+@code {
+	private static readonly string[] Palette =
+	[
+		"#e11d48", "#0891b2", "#65a30d", "#f59e0b", "#7c3aed", "#db2777", "#0ea5e9", "#ef4444",
+		"#22c55e", "#8b5cf6", "#f97316", "#14b8a6"
+	];
+
+	private IBrowserFile? _selectedFile;
+	private string? _selectedFileName;
+	private string? _errorMessage;
+	private bool _isAnalyzing;
+	private DocumentAnalysisUiResult? _analysisResult;
+	private DocumentPagePreview? _currentPage;
+	private int _selectedPageNumber = 1;
+	private List<DocumentFieldOverlay> _visibleFields = [];
+	private readonly Dictionary<string, string> _fieldColors = new(StringComparer.Ordinal);
+
+	private void OnFileSelected(InputFileChangeEventArgs eventArgs)
+	{
+		_selectedFile = eventArgs.File;
+		_selectedFileName = _selectedFile?.Name;
+		_errorMessage = null;
+		_analysisResult = null;
+		_currentPage = null;
+		_visibleFields = [];
+		_fieldColors.Clear();
+	}
+
+	private async Task AnalyzeAsync()
+	{
+		if (_selectedFile is null)
+		{
+			_errorMessage = "Debes seleccionar un archivo PDF.";
+			return;
+		}
+
+		if (!Path.GetExtension(_selectedFile.Name).Equals(".pdf", StringComparison.OrdinalIgnoreCase))
+		{
+			_errorMessage = "Solo se permiten archivos .pdf.";
+			return;
+		}
+
+		_isAnalyzing = true;
+		_errorMessage = null;
+		_analysisResult = null;
+		_currentPage = null;
+		_visibleFields = [];
+
+		try
+		{
+			await using Stream stream = _selectedFile.OpenReadStream(DocumentIntelligenceService.MaxFileSizeBytes);
+			_analysisResult = await DocumentIntelligenceService.AnalyzePdfAsync(stream);
+
+			if (_analysisResult.Pages.Count > 0)
+			{
+				_selectedPageNumber = _analysisResult.Pages[0].PageNumber;
+				AssignFieldColors(_analysisResult.Fields);
+				UpdateCurrentPage();
+			}
+		}
+		catch (IOException)
+		{
+			_errorMessage = $"El archivo supera el límite permitido ({DocumentIntelligenceService.MaxFileSizeBytes / (1024 * 1024)} MB).";
+		}
+		catch (RequestFailedException ex)
+		{
+			_errorMessage = $"Error de Azure Document Intelligence ({ex.Status}): {ex.Message}";
+		}
+		catch (Exception ex)
+		{
+			_errorMessage = ex.Message;
+		}
+		finally
+		{
+			_isAnalyzing = false;
+		}
+	}
+
+	private void UpdateCurrentPage()
+	{
+		if (_analysisResult is null)
+		{
+			_currentPage = null;
+			_visibleFields = [];
+			return;
+		}
+
+		_currentPage = _analysisResult.Pages.FirstOrDefault(page => page.PageNumber == _selectedPageNumber);
+		_visibleFields = _analysisResult.Fields
+			.Where(field => field.PageNumber == _selectedPageNumber)
+			.OrderBy(field => field.Name)
+			.ToList();
+	}
+
+	private void AssignFieldColors(IEnumerable<DocumentFieldOverlay> fields)
+	{
+		_fieldColors.Clear();
+		int index = 0;
+
+		foreach (string fieldName in fields.Select(field => field.Name).Distinct(StringComparer.Ordinal).OrderBy(name => name))
+		{
+			_fieldColors[fieldName] = Palette[index % Palette.Length];
+			index++;
+		}
+	}
+
+	private string GetFieldColor(string fieldName)
+	{
+		return _fieldColors.TryGetValue(fieldName, out string? color)
+			? color
+			: "#334155";
+	}
+
+	private static string SvgViewBox(DocumentPagePreview page)
+	{
+		return FormattableString.Invariant($"0 0 {page.Width} {page.Height}");
+	}
+
+	private static string PolygonToSvgPoints(IReadOnlyList<float> polygon)
+	{
+		return string.Join(
+			' ',
+			polygon.Chunk(2).Where(pair => pair.Length == 2)
+				.Select(pair => FormattableString.Invariant($"{pair[0]},{pair[1]}")));
+	}
+
+	private static string PageAspectStyle(DocumentPagePreview page)
+	{
+		return FormattableString.Invariant($"aspect-ratio: {page.Width}/{page.Height};");
+	}
+
+	private static string WordStyle(DocumentWordPreview word, DocumentPagePreview page)
+	{
+		if (word.Polygon.Count < 2 || page.Width <= 0 || page.Height <= 0)
+		{
+			return string.Empty;
+		}
+
+		double left = (word.Polygon[0] / page.Width) * 100;
+		double top = (word.Polygon[1] / page.Height) * 100;
+
+		return FormattableString.Invariant($"left: {left:F4}%; top: {top:F4}%;");
+	}
+
+	private static string FormatConfidence(float? confidence)
+	{
+		return confidence is null ? "N/D" : $"{confidence:P1}";
+	}
+}

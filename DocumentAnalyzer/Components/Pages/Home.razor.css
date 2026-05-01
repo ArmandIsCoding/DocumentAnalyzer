@@ -1,0 +1,106 @@
+.studio-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+    gap: 1rem;
+    align-items: start;
+}
+
+@media (max-width: 1100px) {
+    .studio-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+.page-select {
+    max-width: 180px;
+}
+
+.doc-surface {
+    border: 1px solid #d0d7de;
+    border-radius: 0.5rem;
+    padding: 0.5rem;
+    background: #f8fafc;
+}
+
+.doc-stage {
+    position: relative;
+    width: 100%;
+    background: #fff;
+    border-radius: 0.25rem;
+    box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.05);
+    overflow: hidden;
+}
+
+.doc-surface svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.overlay-svg {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+}
+
+.ocr-word-html {
+    position: absolute;
+    z-index: 1;
+    font-size: 0.62rem;
+    line-height: 1;
+    fill: #475569;
+    color: #475569;
+    transform: translate(0, -0.1rem);
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.field-polygon {
+    fill-opacity: 0.2;
+    stroke-width: 0.03;
+    vector-effect: non-scaling-stroke;
+}
+
+.field-item {
+    --field-color: #334155;
+    border: 1px solid #d0d7de;
+    border-left: 5px solid var(--field-color);
+    border-radius: 0.4rem;
+    background: #fff;
+    padding: 0.65rem 0.75rem;
+    margin-bottom: 0.6rem;
+}
+
+.field-head {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.field-dot {
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 999px;
+    background: var(--field-color);
+    flex: 0 0 auto;
+}
+
+.field-content {
+    margin: 0.45rem 0;
+    white-space: pre-wrap;
+    color: #1f2937;
+    word-break: break-word;
+}
+
+.field-confidence {
+    font-size: 0.85rem;
+    color: #475569;
+}
+
+.json-view {
+    max-height: 450px;
+    overflow: auto;
+}
+
+
+
