@@ -6,100 +6,149 @@
 
 <PageTitle>Home</PageTitle>
 
-<h1>Analizar PDF con Azure Document Intelligence</h1>
+<div class="home-page">
+	<section class="hero-card">
+		<p class="hero-kicker">DocumentAnalyzer</p>
+		<h1>Analizar facturas PDF con Azure Document Intelligence</h1>
+		<p class="hero-subtitle">Carga un PDF y revisa texto OCR, campos detectados y confianza por cada etiqueta en una vista clara y profesional.</p>
+	</section>
 
-<p>Sube una factura PDF para ver una vista tipo Studio con recuadros por campo y confianza.</p>
-
-<InputFile OnChange="OnFileSelected" accept="application/pdf,.pdf" />
-
-<div class="mt-3">
-	<button class="btn btn-primary"
-			@onclick="AnalyzeAsync"
-			disabled="@(_selectedFile is null || _isAnalyzing)">
-		@(_isAnalyzing ? "Analizando..." : "Analizar PDF")
-	</button>
-</div>
-
-@if (!string.IsNullOrWhiteSpace(_selectedFileName))
-{
-	<p class="mt-3"><strong>Archivo:</strong> @_selectedFileName</p>
-}
-
-@if (!string.IsNullOrWhiteSpace(_errorMessage))
-{
-	<div class="alert alert-danger mt-3" role="alert">
-		@_errorMessage
-	</div>
-}
-
-@if (_analysisResult is not null && _currentPage is not null)
-{
-	<div class="studio-layout mt-4">
-		<section>
-			<div class="d-flex justify-content-between align-items-center mb-2">
-				<h2 class="h4 mb-0">Documento</h2>
-				@if (_analysisResult.Pages.Count > 1)
-				{
-					<select class="form-select form-select-sm page-select" @bind="_selectedPageNumber" @bind:after="UpdateCurrentPage">
-						@foreach (DocumentPagePreview previewPage in _analysisResult.Pages)
-						{
-							<option value="@previewPage.PageNumber">Página @previewPage.PageNumber</option>
-						}
-					</select>
-				}
+	<section class="control-card" aria-live="polite">
+		<div class="control-header">
+			<div>
+				<h2 class="section-title">Carga y analisis</h2>
+				<p class="section-subtitle">Solo se aceptan archivos PDF. Tamano maximo: @MaxFileSizeLabel.</p>
 			</div>
+			<span class="status-chip @StatusCssClass">@CurrentStatus</span>
+		</div>
 
-			<div class="doc-surface">
-				<div class="doc-stage" style="@PageAspectStyle(_currentPage)">
-					@foreach (DocumentWordPreview word in _currentPage.Words)
+		<div class="upload-row">
+			<InputFile class="form-control" OnChange="OnFileSelected" accept="application/pdf,.pdf" />
+			<button class="btn btn-primary analyze-button"
+					@onclick="AnalyzeAsync"
+					disabled="@(!HasSelectedFile || _isAnalyzing)">
+				@if (_isAnalyzing)
+				{
+					<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+				}
+				@(_isAnalyzing ? "Analizando documento..." : "Analizar PDF")
+			</button>
+		</div>
+
+		@if (!string.IsNullOrWhiteSpace(_selectedFileName))
+		{
+			<p class="selected-file"><strong>Archivo listo:</strong> @_selectedFileName</p>
+		}
+	</section>
+
+	@if (!string.IsNullOrWhiteSpace(_errorMessage))
+	{
+		<div class="alert alert-danger error-panel" role="alert">
+			<strong>No se pudo analizar el documento.</strong>
+			<div>@_errorMessage</div>
+		</div>
+	}
+
+	@if (_isAnalyzing)
+	{
+		<section class="loading-card" aria-live="polite">
+			<div class="loading-title">Procesando documento</div>
+			<p>Extrayendo texto y campos. Esto puede tomar unos segundos.</p>
+		</section>
+	}
+
+	@if (!HasResult && !_isAnalyzing && string.IsNullOrWhiteSpace(_errorMessage))
+	{
+		<section class="empty-state-card">
+			<h2 class="section-title">Listo para empezar</h2>
+			<p class="mb-0">Sube una factura PDF para visualizar overlays por campo, confianza y el JSON crudo del analisis.</p>
+		</section>
+	}
+
+	@if (_analysisResult is not null && _currentPage is not null)
+	{
+		<section class="metrics-grid" aria-label="Resumen del analisis">
+			<article class="metric-item">
+				<div class="metric-label">Paginas detectadas</div>
+				<div class="metric-value">@TotalPages</div>
+			</article>
+			<article class="metric-item">
+				<div class="metric-label">Campos con coordenadas</div>
+				<div class="metric-value">@TotalFields</div>
+			</article>
+			<article class="metric-item">
+				<div class="metric-label">Pagina en vista</div>
+				<div class="metric-value">@_selectedPageNumber</div>
+			</article>
+		</section>
+
+		<div class="studio-layout">
+			<section class="panel-card">
+				<div class="panel-head">
+					<h2 class="section-title mb-0">Documento</h2>
+					@if (_analysisResult.Pages.Count > 1)
 					{
-						<span class="ocr-word-html" style="@WordStyle(word, _currentPage)">@word.Content</span>
+						<select class="form-select form-select-sm page-select" @bind="_selectedPageNumber" @bind:after="UpdateCurrentPage" aria-label="Seleccion de pagina">
+							@foreach (DocumentPagePreview previewPage in _analysisResult.Pages)
+							{
+								<option value="@previewPage.PageNumber">Pagina @previewPage.PageNumber</option>
+							}
+						</select>
 					}
-
-					<svg class="overlay-svg" viewBox="@SvgViewBox(_currentPage)" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Vista reconstruida del documento">
-						<rect x="0" y="0" width="@_currentPage.Width" height="@_currentPage.Height" fill="#ffffff" />
-
-						@foreach (DocumentFieldOverlay field in _analysisResult.Fields.Where(field => field.PageNumber == _selectedPageNumber))
-						{
-							<polygon class="field-polygon"
-									 points="@PolygonToSvgPoints(field.Polygon)"
-									 fill="@GetFieldColor(field.Name)"
-									 stroke="@GetFieldColor(field.Name)" />
-						}
-					</svg>
 				</div>
-			</div>
-		</section>
 
-		<section>
-			<h2 class="h4 mb-2">Campos extraidos</h2>
+				<div class="doc-surface">
+					<div class="doc-stage" style="@PageAspectStyle(_currentPage)">
+						@foreach (DocumentWordPreview word in _currentPage.Words)
+						{
+							<span class="ocr-word-html" style="@WordStyle(word, _currentPage)">@word.Content</span>
+						}
 
-			@if (!_visibleFields.Any())
-			{
-				<p class="text-muted">No se encontraron campos con coordenadas para esta página.</p>
-			}
-			else
-			{
-				@foreach (DocumentFieldOverlay field in _visibleFields)
+						<svg class="overlay-svg" viewBox="@SvgViewBox(_currentPage)" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Vista reconstruida del documento">
+							<rect x="0" y="0" width="@_currentPage.Width" height="@_currentPage.Height" fill="#ffffff" />
+
+							@foreach (DocumentFieldOverlay field in _analysisResult.Fields.Where(field => field.PageNumber == _selectedPageNumber))
+							{
+								<polygon class="field-polygon"
+										 points="@PolygonToSvgPoints(field.Polygon)"
+										 fill="@GetFieldColor(field.Name)"
+										 stroke="@GetFieldColor(field.Name)" />
+							}
+						</svg>
+					</div>
+				</div>
+			</section>
+
+			<section class="panel-card">
+				<h2 class="section-title">Campos extraidos</h2>
+
+				@if (!_visibleFields.Any())
 				{
-					<article class="field-item" style="--field-color: @GetFieldColor(field.Name)">
-						<div class="field-head">
-							<div class="field-dot"></div>
-							<strong>@field.Name</strong>
-						</div>
-						<p class="field-content">@(string.IsNullOrWhiteSpace(field.Content) ? "Sin contenido" : field.Content)</p>
-						<div class="field-confidence">Confianza: @FormatConfidence(field.Confidence)</div>
-					</article>
+					<p class="text-muted mb-0">No se encontraron campos con coordenadas para esta pagina.</p>
 				}
-			}
-		</section>
-	</div>
+				else
+				{
+					@foreach (DocumentFieldOverlay field in _visibleFields)
+					{
+						<article class="field-item" style="--field-color: @GetFieldColor(field.Name)">
+							<div class="field-head">
+								<div class="field-dot"></div>
+								<strong>@field.Name</strong>
+							</div>
+							<p class="field-content">@(string.IsNullOrWhiteSpace(field.Content) ? "Sin contenido" : field.Content)</p>
+							<div class="field-confidence">Confianza: @FormatConfidence(field.Confidence)</div>
+						</article>
+					}
+				}
+			</section>
+		</div>
 
-	<details class="mt-4">
-		<summary>Ver JSON crudo</summary>
-		<pre class="p-3 border rounded bg-light mt-2 json-view">@_analysisResult.RawJson</pre>
-	</details>
-}
+		<details class="json-details">
+			<summary>Ver JSON crudo</summary>
+			<pre class="json-view">@_analysisResult.RawJson</pre>
+		</details>
+	}
+</div>
 
 @code {
 	private static readonly string[] Palette =
@@ -117,6 +166,25 @@
 	private int _selectedPageNumber = 1;
 	private List<DocumentFieldOverlay> _visibleFields = [];
 	private readonly Dictionary<string, string> _fieldColors = new(StringComparer.Ordinal);
+	private bool HasSelectedFile => _selectedFile is not null;
+	private bool HasResult => _analysisResult is not null && _currentPage is not null;
+	private int TotalPages => _analysisResult?.Pages.Count ?? 0;
+	private int TotalFields => _analysisResult?.Fields.Count ?? 0;
+	private string MaxFileSizeLabel => $"{DocumentIntelligenceService.MaxFileSizeBytes / (1024 * 1024)} MB";
+	private string CurrentStatus => _isAnalyzing
+		? "Analizando documento"
+		: HasResult
+			? "Analisis completado"
+			: HasSelectedFile
+				? "Archivo listo para analizar"
+				: "Esperando archivo PDF";
+	private string StatusCssClass => _isAnalyzing
+		? "status-running"
+		: HasResult
+			? "status-success"
+			: HasSelectedFile
+				? "status-ready"
+				: "status-idle";
 
 	private void OnFileSelected(InputFileChangeEventArgs eventArgs)
 	{
