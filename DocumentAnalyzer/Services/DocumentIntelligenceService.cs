@@ -53,25 +53,47 @@ public sealed class DocumentIntelligenceService
                     .ToList()))
             .ToList();
 
-        List<DocumentFieldOverlay> fields = new();
+        List<DocumentFieldOverlay> fields = [];
 
-        if (result.Documents.Count > 0)
+        if (result.Documents.Count <= 0) return new DocumentAnalysisUiResult(rawJson, pages, fields);
+        foreach (var (fieldName, field) in result.Documents[0].Fields.OrderBy(x => x.Key))
         {
-            foreach ((string fieldName, DocumentField field) in result.Documents[0].Fields.OrderBy(x => x.Key))
-            {
-                foreach (BoundingRegion region in field.BoundingRegions.Where(region => region.Polygon.Count >= 8))
-                {
-                    fields.Add(new DocumentFieldOverlay(
-                        fieldName,
-                        field.Content,
-                        field.Confidence,
-                        region.PageNumber,
-                        region.Polygon.ToArray()));
-                }
-            }
+            AddFieldOverlays(fields, fieldName, field);
         }
 
         return new DocumentAnalysisUiResult(rawJson, pages, fields);
     }
-}
 
+    private static void AddFieldOverlays(ICollection<DocumentFieldOverlay> overlays, string fieldPath, DocumentField field)
+    {
+        bool hasRegion = false;
+
+        foreach (BoundingRegion region in field.BoundingRegions.Where(region => region.Polygon.Count >= 8))
+        {
+            overlays.Add(new DocumentFieldOverlay(
+                fieldPath,
+                field.Content,
+                field.Confidence,
+                region.PageNumber,
+                region.Polygon.ToArray()));
+            hasRegion = true;
+        }
+
+        // Algunos campos compuestos (ej: Items) no traen región propia; sus hijos sí.
+        if (!hasRegion && field.FieldType == DocumentFieldType.List && field.ValueList is not null)
+        {
+            for (int index = 0; index < field.ValueList.Count; index++)
+            {
+                AddFieldOverlays(overlays, $"{fieldPath}[{index + 1}]", field.ValueList[index]);
+            }
+        }
+
+        if (!hasRegion && field.FieldType == DocumentFieldType.Dictionary && field.ValueDictionary is not null)
+        {
+            foreach ((string key, DocumentField nestedField) in field.ValueDictionary.OrderBy(kvp => kvp.Key))
+            {
+                AddFieldOverlays(overlays, $"{fieldPath}.{key}", nestedField);
+            }
+        }
+    }
+}

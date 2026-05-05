@@ -1,0 +1,359 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@using DocumentAnalyzerLLM.Services
+@implements IAsyncDisposable
+@inject AzureLlmDocumentService AzureLlmDocumentService
+@inject IJSRuntime Js
+
+<PageTitle>Home</PageTitle>
+
+<div class="home-page">
+	<section class="hero-card">
+		<p class="hero-kicker">DocumentAnalyzerLLM</p>
+		<h1>Analizar facturas PDF con Azure LLM</h1>
+		<p class="hero-subtitle">Carga un PDF y revisa campos detectados y confianza por cada etiqueta en una vista clara y profesional.</p>
+	</section>
+
+	<section class="control-card" aria-live="polite">
+		<div class="control-header">
+			<div>
+				<h2 class="section-title">Carga y analisis</h2>
+				<p class="section-subtitle">Solo se aceptan archivos PDF. Tamano maximo: @MaxFileSizeLabel.</p>
+			</div>
+			<span class="status-chip @StatusCssClass">@CurrentStatus</span>
+		</div>
+
+		<div class="upload-row">
+			<InputFile id="invoice-pdf-input" class="form-control" OnChange="OnFileSelected" accept="application/pdf,.pdf" />
+			<button class="btn btn-primary analyze-button"
+					@onclick="AnalyzeAsync"
+					disabled="@(!HasSelectedFile || _isAnalyzing)">
+				@if (_isAnalyzing)
+				{
+					<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+				}
+				@(_isAnalyzing ? "Analizando documento..." : "Analizar PDF")
+			</button>
+		</div>
+
+		@if (!string.IsNullOrWhiteSpace(_selectedFileName))
+		{
+			<p class="selected-file"><strong>Archivo listo:</strong> @_selectedFileName</p>
+		}
+	</section>
+
+	@if (!string.IsNullOrWhiteSpace(_errorMessage))
+	{
+		<div class="alert alert-danger error-panel" role="alert">
+			<strong>No se pudo analizar el documento.</strong>
+			<div>@_errorMessage</div>
+		</div>
+	}
+
+	@if (_isAnalyzing)
+	{
+		<section class="loading-card" aria-live="polite">
+			<div class="loading-title">Procesando documento</div>
+			<p>Extrayendo campos con el modelo LLM. Esto puede tomar unos segundos.</p>
+		</section>
+	}
+
+	@if (!HasResult && !_isAnalyzing && string.IsNullOrWhiteSpace(_errorMessage))
+	{
+		<section class="empty-state-card">
+			<h2 class="section-title">Listo para empezar</h2>
+			<p class="mb-0">Sube una factura PDF para visualizar overlays por campo, confianza y el JSON crudo del analisis.</p>
+		</section>
+	}
+
+	@if (_analysisResult is not null && _currentPage is not null)
+	{
+		<section class="metrics-grid" aria-label="Resumen del analisis">
+			<article class="metric-item">
+				<div class="metric-label">Paginas detectadas</div>
+				<div class="metric-value">@TotalPages</div>
+			</article>
+			<article class="metric-item">
+				<div class="metric-label">Campos con coordenadas</div>
+				<div class="metric-value">@TotalFields</div>
+			</article>
+			<article class="metric-item">
+				<div class="metric-label">Pagina en vista</div>
+				<div class="metric-value">@_selectedPageNumber</div>
+			</article>
+		</section>
+
+		<div class="studio-layout">
+			<section class="panel-card">
+				<div class="panel-head">
+					<h2 class="section-title mb-0">Documento</h2>
+					@if (_analysisResult.Pages.Count > 1)
+					{
+						<select class="form-select form-select-sm page-select" @bind="_selectedPageNumber" @bind:after="UpdateCurrentPageAsync" aria-label="Seleccion de pagina">
+							@foreach (DocumentPagePreview previewPage in _analysisResult.Pages)
+							{
+								<option value="@previewPage.PageNumber">Pagina @previewPage.PageNumber</option>
+							}
+						</select>
+					}
+				</div>
+
+				<div class="doc-surface">
+					<div class="doc-stage" style="@PageAspectStyle(_currentPage)">
+						<canvas id="pdf-page-canvas" class="pdf-canvas" role="img" aria-label="Pagina original renderizada del PDF"></canvas>
+
+						<svg class="overlay-svg" viewBox="@SvgViewBox(_currentPage)" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Campos detectados sobre el PDF original">
+
+							@foreach (DocumentFieldOverlay field in _analysisResult.Fields.Where(field => field.PageNumber == _selectedPageNumber))
+							{
+								<polygon class="field-polygon"
+										 points="@PolygonToSvgPoints(field.Polygon)"
+										 fill="@GetFieldColor(field.Name)"
+										 stroke="@GetFieldColor(field.Name)" />
+							}
+						</svg>
+					</div>
+				</div>
+			</section>
+
+			<section class="panel-card">
+				<h2 class="section-title">Campos extraidos</h2>
+
+				@if (!_visibleFields.Any())
+				{
+					<p class="text-muted mb-0">No se encontraron campos con coordenadas para esta pagina.</p>
+				}
+				else
+				{
+					@foreach (DocumentFieldOverlay field in _visibleFields)
+					{
+						<article class="field-item" style="--field-color: @GetFieldColor(field.Name)">
+							<div class="field-head">
+								<div class="field-dot"></div>
+								<strong>@field.Name</strong>
+							</div>
+							<p class="field-content">@(string.IsNullOrWhiteSpace(field.Content) ? "Sin contenido" : field.Content)</p>
+							<div class="field-confidence">Confianza: @FormatConfidence(field.Confidence)</div>
+						</article>
+					}
+				}
+			</section>
+		</div>
+
+		<details class="json-details">
+			<summary>Ver JSON crudo</summary>
+			<pre class="json-view">@_analysisResult.RawJson</pre>
+		</details>
+	}
+</div>
+
+@code {
+	private static readonly string[] Palette =
+	[
+		"#e11d48", "#0891b2", "#65a30d", "#f59e0b", "#7c3aed", "#db2777", "#0ea5e9", "#ef4444",
+		"#22c55e", "#8b5cf6", "#f97316", "#14b8a6"
+	];
+
+	private IBrowserFile? _selectedFile;
+	private string? _selectedFileName;
+	private string? _errorMessage;
+	private bool _isAnalyzing;
+	private DocumentAnalysisUiResult? _analysisResult;
+	private DocumentPagePreview? _currentPage;
+	private int _selectedPageNumber = 1;
+	private List<DocumentFieldOverlay> _visibleFields = [];
+	private readonly Dictionary<string, string> _fieldColors = new(StringComparer.Ordinal);
+	private IJSObjectReference? _homeModule;
+	private bool _isJsReady;
+	private bool _pendingPdfRender;
+	private bool HasSelectedFile => _selectedFile is not null;
+	private bool HasResult => _analysisResult is not null && _currentPage is not null;
+	private int TotalPages => _analysisResult?.Pages.Count ?? 0;
+	private int TotalFields => _analysisResult?.Fields.Count ?? 0;
+	private string MaxFileSizeLabel => $"{AzureLlmDocumentService.MaxFileSizeBytes / (1024 * 1024)} MB";
+	private string CurrentStatus => _isAnalyzing
+		? "Analizando documento"
+		: HasResult
+			? "Analisis completado"
+			: HasSelectedFile
+				? "Archivo listo para analizar"
+				: "Esperando archivo PDF";
+	private string StatusCssClass => _isAnalyzing
+		? "status-running"
+		: HasResult
+			? "status-success"
+			: HasSelectedFile
+				? "status-ready"
+				: "status-idle";
+
+	private void OnFileSelected(InputFileChangeEventArgs eventArgs)
+	{
+		_selectedFile = eventArgs.File;
+		_selectedFileName = _selectedFile?.Name;
+		_errorMessage = null;
+		_analysisResult = null;
+		_currentPage = null;
+		_visibleFields = [];
+		_fieldColors.Clear();
+		_pendingPdfRender = false;
+	}
+
+	private async Task AnalyzeAsync()
+	{
+		if (_selectedFile is null)
+		{
+			_errorMessage = "Debes seleccionar un archivo PDF.";
+			return;
+		}
+
+		if (!Path.GetExtension(_selectedFile.Name).Equals(".pdf", StringComparison.OrdinalIgnoreCase))
+		{
+			_errorMessage = "Solo se permiten archivos .pdf.";
+			return;
+		}
+
+		_isAnalyzing = true;
+		_errorMessage = null;
+		_analysisResult = null;
+		_currentPage = null;
+		_visibleFields = [];
+
+		try
+		{
+			await using Stream stream = _selectedFile.OpenReadStream(AzureLlmDocumentService.MaxFileSizeBytes);
+			_analysisResult = await AzureLlmDocumentService.AnalyzePdfAsync(stream);
+
+			if (_analysisResult.Pages.Count > 0)
+			{
+				_selectedPageNumber = _analysisResult.Pages[0].PageNumber;
+				AssignFieldColors(_analysisResult.Fields);
+				await UpdateCurrentPageAsync();
+			}
+		}
+		catch (IOException)
+		{
+			_errorMessage = $"El archivo supera el límite permitido ({AzureLlmDocumentService.MaxFileSizeBytes / (1024 * 1024)} MB).";
+		}
+		catch (InvalidOperationException ex)
+		{
+			_errorMessage = ex.Message;
+		}
+		catch (Exception ex)
+		{
+			_errorMessage = ex.Message;
+		}
+		finally
+		{
+			_isAnalyzing = false;
+		}
+	}
+
+	private async Task UpdateCurrentPageAsync()
+	{
+		if (_analysisResult is null)
+		{
+			_currentPage = null;
+			_visibleFields = [];
+			_pendingPdfRender = false;
+			return;
+		}
+
+		_currentPage = _analysisResult.Pages.FirstOrDefault(page => page.PageNumber == _selectedPageNumber);
+		_visibleFields = _analysisResult.Fields
+			.Where(field => field.PageNumber == _selectedPageNumber)
+			.OrderBy(field => field.Name)
+			.ToList();
+
+		_pendingPdfRender = _currentPage is not null;
+		await InvokeAsync(StateHasChanged);
+	}
+
+	protected override async Task OnAfterRenderAsync(bool firstRender)
+	{
+		if (firstRender)
+		{
+			_homeModule = await Js.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/Home.razor.js");
+			_isJsReady = true;
+		}
+
+		if (_pendingPdfRender && HasResult)
+		{
+			await RenderPdfPageAsync();
+		}
+	}
+
+	private async Task RenderPdfPageAsync()
+	{
+		if (!HasResult || !HasSelectedFile)
+		{
+			return;
+		}
+
+		if (!_isJsReady || _homeModule is null)
+		{
+			_pendingPdfRender = true;
+			return;
+		}
+
+		_pendingPdfRender = false;
+
+		try
+		{
+			await _homeModule.InvokeVoidAsync("renderPageFromInput", "invoice-pdf-input", "pdf-page-canvas", _selectedPageNumber);
+		}
+		catch (JSException ex)
+		{
+			_errorMessage = $"No se pudo renderizar el PDF en pantalla: {ex.Message}";
+		}
+	}
+
+	public async ValueTask DisposeAsync()
+	{
+		if (_homeModule is not null)
+		{
+			await _homeModule.DisposeAsync();
+		}
+	}
+
+	private void AssignFieldColors(IEnumerable<DocumentFieldOverlay> fields)
+	{
+		_fieldColors.Clear();
+		int index = 0;
+
+		foreach (string fieldName in fields.Select(field => field.Name).Distinct(StringComparer.Ordinal).OrderBy(name => name))
+		{
+			_fieldColors[fieldName] = Palette[index % Palette.Length];
+			index++;
+		}
+	}
+
+	private string GetFieldColor(string fieldName)
+	{
+		return _fieldColors.TryGetValue(fieldName, out string? color)
+			? color
+			: "#334155";
+	}
+
+	private static string SvgViewBox(DocumentPagePreview page)
+	{
+		return FormattableString.Invariant($"0 0 {page.Width} {page.Height}");
+	}
+
+	private static string PolygonToSvgPoints(IReadOnlyList<float> polygon)
+	{
+		return string.Join(
+			' ',
+			polygon.Chunk(2).Where(pair => pair.Length == 2)
+				.Select(pair => FormattableString.Invariant($"{pair[0]},{pair[1]}")));
+	}
+
+	private static string PageAspectStyle(DocumentPagePreview page)
+	{
+		return FormattableString.Invariant($"aspect-ratio: {page.Width}/{page.Height};");
+	}
+
+	private static string FormatConfidence(float? confidence)
+	{
+		return confidence is null ? "N/D" : $"{confidence:P1}";
+	}
+}
