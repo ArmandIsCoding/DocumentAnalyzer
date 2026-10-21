@@ -20,7 +20,6 @@ public sealed class Settings
     [JsonIgnore] public string Endpoint { get => DocumentIntelligence.Endpoint; set => DocumentIntelligence.Endpoint = value; }
     [JsonIgnore] public string ApiKey { get => DocumentIntelligence.ApiKey; set => DocumentIntelligence.ApiKey = value; }
     [JsonIgnore] public string ModelId { get => DocumentIntelligence.ModelId; set => DocumentIntelligence.ModelId = value; }
-    [JsonIgnore] public string Tier { get => DocumentIntelligence.Tier; set => DocumentIntelligence.Tier = value; }
     [JsonIgnore] public string InputDirectory { get => Batch.InputDirectory; set => Batch.InputDirectory = value; }
     [JsonIgnore] public string FilePattern { get => Batch.FilePattern; set => Batch.FilePattern = value; }
     [JsonIgnore] public string DatabasePath { get => Storage.DatabasePath; set => Storage.DatabasePath = value; }
@@ -28,9 +27,9 @@ public sealed class Settings
     [JsonIgnore] public int MaxDocuments { get => Batch.MaxDocuments; set => Batch.MaxDocuments = value; }
     [JsonIgnore] public int TimeoutSeconds { get => DocumentIntelligence.TimeoutSeconds; set => DocumentIntelligence.TimeoutSeconds = value; }
     [JsonIgnore] public bool IsContentUnderstanding => Provider.Equals("ContentUnderstanding", StringComparison.OrdinalIgnoreCase);
-    [JsonIgnore] public bool IsFree => !IsContentUnderstanding && Tier.Equals("F0", StringComparison.OrdinalIgnoreCase);
-    [JsonIgnore] public string ApiVersion => IsContentUnderstanding ? "2025-11-01" : DocumentIntelligence.ApiVersion;
-    [JsonIgnore] public string PageRange => IsFree ? "1-2" : DocumentIntelligence.Pages;
+    // The REST contract is an implementation detail, not an operator setting.
+    [JsonIgnore] public string ApiVersion => IsContentUnderstanding ? "2025-11-01" : "2024-11-30";
+    [JsonIgnore] public string PageRange => DocumentIntelligence.Pages;
     public static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true, WriteIndented = true, ReadCommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
 
     public static string FindRoot()
@@ -64,7 +63,6 @@ public sealed class Settings
         }
         result.Endpoint = Environment.GetEnvironmentVariable("INVOICE_AZURE_ENDPOINT") ?? result.Endpoint;
         result.ApiKey = Environment.GetEnvironmentVariable("INVOICE_AZURE_KEY") ?? result.ApiKey;
-        result.Tier = Environment.GetEnvironmentVariable("INVOICE_TIER") ?? result.Tier;
         result.DatabasePath = Path.GetFullPath(Environment.GetEnvironmentVariable("INVOICE_DB") ?? result.DatabasePath, root);
         result.InputDirectory = Path.GetFullPath(result.InputDirectory, root);
         result.ExportDirectory = Path.GetFullPath(result.ExportDirectory, root);
@@ -112,7 +110,6 @@ public sealed class Settings
     {
         if (DocumentIntelligence is null || Batch is null || Pipeline is null || Storage is null || Pipeline.TargetFields is null || Pipeline.RequiredFields is null || Pipeline.FieldThresholds is null || DocumentIntelligence.QueryFields is null)
             throw new InvalidOperationException("Configuration sections and field lists cannot be null.");
-        if (Tier is not ("F0" or "S0")) throw new InvalidOperationException("Tier must be F0 or S0.");
         if (TimeoutSeconds < 10 || MaxDocuments < 1 || string.IsNullOrWhiteSpace(ModelId)) throw new InvalidOperationException("Check timeout, maximum documents, and model ID.");
         if (DocumentIntelligence.MaxRetries is < 0 or > 10 || DocumentIntelligence.PollIntervalMilliseconds is < 100 or > 60000) throw new InvalidOperationException("MaxRetries must be 0-10; PollIntervalMilliseconds must be 100-60000.");
         if (Pipeline.TargetFields.Any(string.IsNullOrWhiteSpace) || Pipeline.RequiredFields.Any(string.IsNullOrWhiteSpace)) throw new InvalidOperationException("Field names cannot be blank.");
@@ -126,14 +123,13 @@ public sealed class Settings
         if (Pipeline.AcceptanceConfidence is <= 0 or > 1 || Pipeline.FieldThresholds.Values.Any(v => v is <= 0 or > 1)) throw new InvalidOperationException("Confidence thresholds must be in (0,1].");
         if (Pipeline.RasterDpi is < 150 or > 400 || Pipeline.MaxRasterPages is < 1 or > 50 || Pipeline.MaxRasterPixels is < 1000000 or > 40000000) throw new InvalidOperationException("Invalid raster safety limits.");
         if (Pipeline.QueryMode is not ("Off" or "Fallback" or "Always")) throw new InvalidOperationException("QueryMode must be Off, Fallback, or Always.");
-        if (IsFree && Pipeline.AllowPaidFeatures) throw new InvalidOperationException("Paid features cannot be enabled in F0 mode.");
         if (Pipeline.AmountTolerance < 0) throw new InvalidOperationException("AmountTolerance cannot be negative.");
     }
     // Exclude credentials and machine paths. Key rotation and relocating the workspace preserve resumption.
     public string Fingerprint()
     {
         var node = JsonSerializer.SerializeToNode(DocumentIntelligence, JsonOptions)!.AsObject(); node.Remove("ApiKey"); node.Remove("Endpoint");
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("pipeline-v2|" + node.ToJsonString() + JsonSerializer.Serialize(Pipeline, JsonOptions))));
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("pipeline-v3|" + ApiVersion + "|" + node.ToJsonString() + JsonSerializer.Serialize(Pipeline, JsonOptions))));
     }
     public string PublicJson()
     {
@@ -145,10 +141,8 @@ public sealed class DocumentIntelligenceOptions
 {
     public string Endpoint { get; set; } = "";
     public string ApiKey { get; set; } = "";
-    public string ApiVersion { get; set; } = "2024-11-30";
     public string ModelId { get; set; } = "prebuilt-invoice";
     public string CustomModelId { get; set; } = "";
-    public string Tier { get; set; } = "F0";
     public string Locale { get; set; } = "";
     public string Pages { get; set; } = "";
     public string[] QueryFields { get; set; } = ["VendorName", "VendorAddress", "VendorTaxId", "CustomerName", "CustomerAddress", "InvoiceId", "PurchaseOrder", "InvoiceDate", "DueDate", "SubTotal", "TotalTax", "InvoiceTotal", "AmountDue", "Currency", "PaymentTerms"];
@@ -161,10 +155,12 @@ public sealed class BatchOptions
     public string InputDirectory { get; set; } = "invoices";
     public string FilePattern { get; set; } = "*.pdf";
     public bool Recursive { get; set; } = true;
-    public int MaxDocuments { get; set; } = 1;
+    // Process the full folder unless the operator explicitly selects a smaller experiment.
+    public int MaxDocuments { get; set; } = int.MaxValue;
     public int Concurrency { get; set; } = 2;
     public double RequestsPerSecond { get; set; } = 2;
-    public int MaxAnalyzeRequests { get; set; } = 100;
+    // Optional per-batch submission ceiling; no small pilot budget is imposed by default.
+    public int MaxAnalyzeRequests { get; set; } = int.MaxValue;
     public bool SkipPreviouslyCompleted { get; set; } = true;
     public bool ContinueOnFileError { get; set; } = true;
 }
@@ -174,7 +170,6 @@ public sealed class PipelineOptions
     public string[] RequiredFields { get; set; } = ["VendorName", "InvoiceId", "InvoiceDate", "InvoiceTotal", "Currency"];
     public double AcceptanceConfidence { get; set; } = .98;
     public Dictionary<string, double> FieldThresholds { get; set; } = new();
-    public bool AllowPaidFeatures { get; set; }
     public string QueryMode { get; set; } = "Fallback";
     public bool HighResolutionFallback { get; set; } = true;
     public bool RasterFallback { get; set; }

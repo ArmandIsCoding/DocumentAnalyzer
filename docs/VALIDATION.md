@@ -7,7 +7,8 @@ Development validation was performed on Windows x64 with .NET SDK 10.0.402. Test
 - Release build of Core, CLI, Blazor Server, and Tests.
 - Parser and CSV tests, including nested fields, OCR, zero/null confidence, evidence preservation, and spreadsheet-formula neutralization.
 - Quality decisions: coverage, required/optional absence, typed formats, per-field thresholds, unmodified confidence, derived currency, date/amount warnings, cross-pass conflicts, and document-index isolation.
-- Durable pipeline: selective fallback, early stopping, source integrity, content deduplication, explicit reruns, partial F0 documents, configuration changes, request budgets, interruption, saved-operation resumption, and ambiguous submission blocking.
+- Durable pipeline: selective fallback, early stopping, source integrity, content deduplication, explicit reruns, service-truncated documents, explicit page subsets, configuration changes, optional request budgets, interruption, saved-operation resumption, and ambiguous submission blocking.
+- Minimal configuration: endpoint/key only, ignored obsolete tier/API-version settings, full-folder discovery beyond ten inputs, all-page requests, and explicit limit overrides.
 - HTTP behavior: original binary request and polling, supported API paths, query-field encoding, 429 retry, POST ambiguity, and credential destination restrictions.
 - Repository/evaluation: concurrent budget reservation, append-only labels, atomic imports, immutable dataset split, missing/failed prediction denominators, and confidence interval behavior.
 - Legacy synthetic records are excluded from operational history, batches, exports, and evaluation. Synthetic parser/HTTP fixtures are compiled only into the test project.

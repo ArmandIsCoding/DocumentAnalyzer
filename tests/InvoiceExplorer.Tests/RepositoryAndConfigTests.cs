@@ -41,7 +41,7 @@ public class RepositoryAndConfigTests
         using var w = new Workspace();
         File.WriteAllText(Path.Combine(w.Root, "appsettings.json"), """
             { // English comments are valid
-              "DocumentIntelligence":{"Tier":"S0"}, "Batch":{"MaxDocuments":20}}
+              "Batch":{"MaxDocuments":20}}
             """);
         File.WriteAllText(Path.Combine(w.Root, "appsettings.local.json"), """{"batch":{"Concurrency":3}}""");
         var names = new[] { "DocumentIntelligence__QueryFields", "DocumentIntelligence__ApiKey", "Pipeline__TargetFields__0" };
@@ -55,6 +55,28 @@ public class RepositoryAndConfigTests
         finally { for (var i = 0; i < names.Length; i++) Environment.SetEnvironmentVariable(names[i], previous[i]); }
     }
     [Fact]
+    public void EndpointAndKeyAreSufficientAndObsoleteSettingsAreIgnored()
+    {
+        using var w = new Workspace();
+        var localPath = Path.Combine(w.Root, "appsettings.local.json");
+        File.WriteAllText(localPath, """{"DocumentIntelligence":{"Endpoint":"https://example.com/","ApiKey":"test-key"}}""");
+        var minimal = Settings.Load(w.Root); minimal.ValidateAzure();
+        Assert.Equal("prebuilt-invoice", minimal.ModelId);
+        Assert.Equal("", minimal.PageRange);
+        Assert.Equal(int.MaxValue, minimal.MaxDocuments);
+        Assert.Equal(int.MaxValue, minimal.Batch.MaxAnalyzeRequests);
+
+        // Old VM configuration must not reintroduce tier validation or select an unsupported REST contract.
+        File.WriteAllText(localPath, """{"DocumentIntelligence":{"Endpoint":"https://example.com/","ApiKey":"test-key","Tier":"","ApiVersion":"invalid"},"Pipeline":{"AllowPaidFeatures":false}}""");
+        var migrated = Settings.Load(w.Root); migrated.ValidateAzure();
+        Assert.Equal(minimal.Fingerprint(), migrated.Fingerprint());
+        var url = AzureInvoiceClient.BuildUri(migrated, new("Original", migrated.ModelId, [], [], "", "")).AbsoluteUri;
+        Assert.Contains("api-version=2024-11-30", url);
+        Assert.DoesNotContain("pages=", url);
+        Assert.DoesNotContain("Tier", migrated.PublicJson());
+        Assert.DoesNotContain("AllowPaidFeatures", migrated.PublicJson());
+    }
+    [Fact]
     public void FingerprintIgnoresSecretsBudgetAndPathsButTracksQualityPolicy()
     {
         var s = new Settings { ApiKey = "private-test-key" }; var fp = s.Fingerprint(); Assert.DoesNotContain(s.ApiKey, s.PublicJson());
@@ -64,8 +86,8 @@ public class RepositoryAndConfigTests
     [Fact]
     public void ValidationRejectsUnsafeOrInconsistentOptions()
     {
-        var s = new Settings(); s.Validate(); s.Pipeline.AllowPaidFeatures = true; Assert.Throws<InvalidOperationException>(s.Validate);
-        s.Pipeline.AllowPaidFeatures = false; s.DocumentIntelligence.MaxRetries = -1; Assert.Throws<InvalidOperationException>(s.Validate);
+        var s = new Settings(); s.Validate();
+        s.DocumentIntelligence.MaxRetries = -1; Assert.Throws<InvalidOperationException>(s.Validate);
         s.DocumentIntelligence.MaxRetries = 5; s.Pipeline.RequiredFields = ["Unknown"]; Assert.Throws<InvalidOperationException>(s.Validate);
         s.Pipeline.RequiredFields = []; s.Endpoint = "http://insecure.example"; s.ApiKey = "x"; Assert.Throws<InvalidOperationException>(s.ValidateAzure);
     }
@@ -111,7 +133,7 @@ public class RepositoryAndConfigTests
     [Fact]
     public void QueryFieldsRequestIncludesFeatureAndEscapesParameters()
     {
-        var s = new Settings { Endpoint = "https://example.com", Tier = "S0" };
+        var s = new Settings { Endpoint = "https://example.com" };
         var url = AzureInvoiceClient.BuildUri(s, new("QueryFields", "prebuilt-layout", ["queryFields"], ["VendorTaxId", "PaymentTerms"], "1-3,5", "en-US")).AbsoluteUri;
         Assert.Contains("features=queryFields", url); Assert.Contains("queryFields=VendorTaxId,PaymentTerms", url); Assert.Contains("pages=1-3%2C5", url); Assert.Contains("locale=en-US", url);
     }

@@ -19,7 +19,7 @@ public sealed class Workspace : IDisposable
     public Workspace()
     {
         Directory.CreateDirectory(Root);
-        Settings = new() { RootDirectory = Root, Tier = "S0", InputDirectory = Path.Combine(Root, "invoices"), DatabasePath = Path.Combine(Root, "data", "test.db"), ExportDirectory = Path.Combine(Root, "exports") };
+        Settings = new() { RootDirectory = Root, InputDirectory = Path.Combine(Root, "invoices"), DatabasePath = Path.Combine(Root, "data", "test.db"), ExportDirectory = Path.Combine(Root, "exports") };
         Settings.Storage.ArtifactDirectory = Path.Combine(Root, "artifacts");
         Settings.Batch.MaxDocuments = 100; Settings.Pipeline.TargetFields = ["InvoiceId"]; Settings.Pipeline.RequiredFields = ["InvoiceId"];
         Settings.DocumentIntelligence.QueryFields = ["InvoiceId"]; Settings.Pipeline.HighResolutionFallback = false;
@@ -39,7 +39,7 @@ public sealed class Workspace : IDisposable
     public (string Batch, long Id) Execution(string hash = "hash")
     { var batch = Repo.CreateBatch(Settings); return (batch, Repo.AddExecution(batch, hash, "invoice.pdf", Settings.Fingerprint())); }
     public void Dispose() { SqliteConnection.ClearAllPools(); Directory.Delete(Root, true); }
-    public static string Response(string value = "INV-001", double score = .99) => JsonSerializer.Serialize(new { status = "succeeded", analyzeResult = new { documents = new[] { new { fields = new { InvoiceId = new { type = "string", valueString = value, confidence = score } } } } } });
+    public static string Response(string value = "INV-001", double score = .99, int pages = 1) => JsonSerializer.Serialize(new { status = "succeeded", analyzeResult = new { pages = Enumerable.Range(1, pages).Select(n => new { pageNumber = n }), documents = new[] { new { fields = new { InvoiceId = new { type = "string", valueString = value, confidence = score } } } } } });
 }
 
 public sealed class FakeAnalyzer : IInvoiceAnalyzer
@@ -59,7 +59,6 @@ public class BatchPipelineTests
     public async Task ReadyOriginalStopsEarlyAndPreservesEvidence()
     {
         using var w = new Workspace(); var file = w.Pdf(); var original = File.ReadAllBytes(file); var api = new FakeAnalyzer();
-        w.Settings.Pipeline.AllowPaidFeatures = true;
         var runner = new BatchRunner(w.Settings, w.Repo, api); var batch = await runner.CreateAsync([file], false, default); await runner.RunAsync(batch, default);
         var e = w.Repo.GetExecution(Assert.Single(w.Repo.ListExecutions()).Id)!;
         Assert.Equal("Ready", e.Status); Assert.Equal(1, api.Posts); Assert.Equal(original, File.ReadAllBytes(e.ArtifactPath));
@@ -68,7 +67,7 @@ public class BatchPipelineTests
     [Fact]
     public async Task TargetedFallbackRetainsScoresAndBothRawRuns()
     {
-        using var w = new Workspace(); var file = w.Pdf(); w.Settings.Pipeline.AllowPaidFeatures = true;
+        using var w = new Workspace(); var file = w.Pdf();
         var api = new FakeAnalyzer { Analyze = (r, cb) => { cb("https://example.com/operation/1"); return Workspace.Response(score: r.Strategy == "Original" ? .74 : .99); } };
         var runner = new BatchRunner(w.Settings, w.Repo, api); var batch = await runner.CreateAsync([file], false, default); await runner.RunAsync(batch, default);
         var e = w.Repo.GetExecution(w.Repo.ListExecutions().Single().Id)!;
@@ -77,9 +76,23 @@ public class BatchPipelineTests
         Assert.Equal(new[] { .74, .99 }, e.Decision.Fields.Single().Candidates.Select(c => c.Confidence!.Value));
     }
     [Fact]
+    public async Task DefaultFallbacksRunWithoutTierOrFeatureGate()
+    {
+        using var w = new Workspace(); var file = w.Pdf();
+        w.Settings.Pipeline.HighResolutionFallback = new PipelineOptions().HighResolutionFallback;
+        var api = new FakeAnalyzer { Analyze = (r, cb) => { cb("https://example.com/operation/1"); return Workspace.Response(score: r.Strategy == "HighResolution" ? .99 : .74); } };
+        var runner = new BatchRunner(w.Settings, w.Repo, api); var batch = await runner.CreateAsync([file], false, default); await runner.RunAsync(batch, default);
+        var e = w.Repo.GetExecution(w.Repo.ListExecutions().Single().Id)!;
+        Assert.Equal("Ready", e.Status);
+        Assert.Equal(new[] { "Original", "QueryFields", "HighResolution" }, api.Requests.Select(r => r.Strategy));
+        Assert.Contains("ocrHighResolution", api.Requests[2].Features);
+        Assert.Equal(3, w.Repo.GetAttempts(e.Id).Count);
+        Assert.Equal(new[] { .74, .74, .99 }, e.Decision!.Fields.Single().Candidates.Select(c => c.Confidence!.Value));
+    }
+    [Fact]
     public async Task FallbackConflictCannotAutoApprove()
     {
-        using var w = new Workspace(); var file = w.Pdf(); w.Settings.Pipeline.AllowPaidFeatures = true;
+        using var w = new Workspace(); var file = w.Pdf();
         var api = new FakeAnalyzer { Analyze = (r, cb) => { cb("https://example.com/operation/1"); return r.Strategy == "Original" ? Workspace.Response("A", .74) : Workspace.Response("B", .999); } };
         var runner = new BatchRunner(w.Settings, w.Repo, api); var batch = await runner.CreateAsync([file], false, default); await runner.RunAsync(batch, default);
         var e = w.Repo.GetExecution(w.Repo.ListExecutions().Single().Id)!;
@@ -144,12 +157,39 @@ public class BatchPipelineTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => runner.RunAsync(batch, default));
     }
     [Fact]
-    public async Task FreeTierCapsDiscoveryAndMarksIncompleteInvoices()
+    public void DefaultDiscoveryIncludesAllInputsAndRespectsExplicitLimits()
     {
-        using var w = new Workspace(); w.Settings.Tier = "F0"; var file = w.Pdf(pages: 3); w.Pdf("subfolder/second.pdf");
-        Assert.Single(BatchRunner.Discover(w.Settings, 100)); w.Settings.Tier = "S0"; Assert.Equal(2, BatchRunner.Discover(w.Settings).Length); w.Settings.Tier = "F0";
-        var api = new FakeAnalyzer(); var runner = new BatchRunner(w.Settings, w.Repo, api); var batch = await runner.CreateAsync([file], false, default); await runner.RunAsync(batch, default);
-        var e = w.Repo.GetExecution(w.Repo.ListExecutions().Single().Id)!; Assert.Equal("Review", e.Status); Assert.Contains(e.Decision!.Issues, i => i.Code == "PartialDocument"); Assert.Equal("1-2", api.Requests.Single().Pages);
+        using var w = new Workspace();
+        for (var i = 0; i < 12; i++) w.Pdf($"subfolder/invoice-{i}.pdf");
+        var settings = Settings.Load(w.Root);
+        Assert.Equal(12, BatchRunner.Discover(settings).Length);
+        Assert.Single(BatchRunner.Discover(settings, 1));
+        settings.Batch.MaxDocuments = 3;
+        Assert.Equal(3, BatchRunner.Discover(settings).Length);
+        Assert.Equal(12, BatchRunner.Discover(settings, int.MaxValue).Length);
+    }
+    [Theory]
+    [InlineData(3, "Ready")]
+    [InlineData(2, "Review")]
+    public async Task RequestsAllPagesAndDetectsServiceTruncation(int returnedPages, string expectedStatus)
+    {
+        using var w = new Workspace(); var file = w.Pdf(pages: 3);
+        var api = new FakeAnalyzer { Analyze = (_, cb) => { cb("https://example.com/operation/1"); return Workspace.Response(pages: returnedPages); } };
+        var runner = new BatchRunner(w.Settings, w.Repo, api); var batch = await runner.CreateAsync([file], false, default); await runner.RunAsync(batch, default);
+        var e = w.Repo.GetExecution(w.Repo.ListExecutions().Single().Id)!;
+        Assert.Equal(expectedStatus, e.Status);
+        Assert.Equal(returnedPages < 3, e.Decision!.Issues.Any(i => i.Code == "PartialDocument"));
+        Assert.Equal("", api.Requests.Single().Pages);
+    }
+    [Fact]
+    public async Task ExplicitPageSelectionRemainsMarkedIncomplete()
+    {
+        using var w = new Workspace(); var file = w.Pdf(pages: 3); w.Settings.DocumentIntelligence.Pages = "1-2";
+        var api = new FakeAnalyzer { Analyze = (_, cb) => { cb("https://example.com/operation/1"); return Workspace.Response(pages: 2); } };
+        var runner = new BatchRunner(w.Settings, w.Repo, api); var batch = await runner.CreateAsync([file], false, default); await runner.RunAsync(batch, default);
+        var e = w.Repo.GetExecution(w.Repo.ListExecutions().Single().Id)!;
+        Assert.Equal("Review", e.Status); Assert.Single(e.Decision!.Issues, i => i.Code == "PartialDocument");
+        Assert.Equal("1-2", api.Requests.Single().Pages);
     }
     [Fact]
     public async Task NativeRasterPreservesPagesGeometryAndSourceBytes()

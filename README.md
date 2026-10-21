@@ -13,8 +13,8 @@ src/InvoiceExplorer.Cli/             Batch processing and operator commands
 src/InvoiceExplorer.Web/             Blazor Server dashboard and review workspace
 tests/InvoiceExplorer.Tests/         Automated pipeline and integration tests
 docs/                               Architecture, evaluation, validation, and VM runbook
-appsettings.json                    Shared defaults, with no credentials
-appsettings.local.example.json      S0 batch configuration template
+appsettings.json                    Shared endpoint/key placeholders
+appsettings.local.example.json      Local endpoint/key template
 invoice-workspace.marker            Workspace root discovery
 ```
 
@@ -42,7 +42,7 @@ dotnet run --project src/InvoiceExplorer.Web -c Release --no-build --urls http:/
 
 Open `http://localhost:5180`. A new workspace contains no extraction records. Counts are zero, confidence and coverage are unavailable, and accuracy is not measured until reference labels are supplied. Starting the web app does not call Azure or generate sample records. Stop the web process with Ctrl+C.
 
-For real extraction, copy `appsettings.local.example.json` to `appsettings.local.json`, enter the approved Azure resource settings locally, and create the `invoices` directory for your PDFs. Run:
+For real extraction, copy `appsettings.local.example.json` to `appsettings.local.json`, enter the Azure endpoint and API key, and create the `invoices` directory for your PDFs. Run:
 
 ```powershell
 dotnet run --project src/InvoiceExplorer.Cli -c Release --no-build -- doctor
@@ -50,7 +50,7 @@ dotnet run --project src/InvoiceExplorer.Cli -c Release --no-build -- plan
 dotnet run --project src/InvoiceExplorer.Cli -c Release --no-build -- extract
 ```
 
-The S0 example selects up to **10,000 PDFs** with a **30,000-request analyze budget**, including extra passes and retries. Both are configurable. Without the local override, the checked-in defaults remain F0 and one PDF. There is no fixed ten-invoice cap. The configured tier must match the actual Azure resource; editing the file does not provision or change that resource.
+Endpoint and API key are the only required settings. Defaults discover all PDFs recursively in `invoices`, request all pages, and use `prebuilt-invoice` with targeted query and high-resolution fallbacks, up to three passes. There is no one- or ten-invoice cap, two-page request restriction, or default pilot request budget. Azure enforces the limits of the actual resource.
 
 Keep `INVOICE_ROOT` unset when using automatic root discovery, or point it to the current repository root. A variable left pointing to a previous checkout will select that workspace instead.
 
@@ -66,7 +66,7 @@ dotnet run --project src/InvoiceExplorer.Cli -c Release --no-build -- resume BAT
 dotnet run --project src/InvoiceExplorer.Cli -c Release --no-build -- report --batch BATCH_ID
 ```
 
-`plan` inspects local PDFs without sending them to Azure. `extract` sends selected documents to the configured Azure endpoint. Additional analysis passes and retries may consume quota and incur charges. `MaxAnalyzeRequests` is a submission-count limit, not a monetary budget. `--all` bypasses the document-count limit in S0; the request budget still applies. An explicit `--limit N` can be used for an initial sample. `resume` reuses saved operations. `--rerun` creates another execution for previously processed content.
+`plan` inspects local PDFs without sending them to Azure. `extract` sends selected documents to the configured Azure endpoint. Additional analysis passes and retries may consume quota and incur charges. An explicit `--limit N` selects an initial sample. Optional `Batch.MaxDocuments` and `Batch.MaxAnalyzeRequests` settings can bound an experiment; `--all` bypasses only the document limit. `resume` reuses saved operations. `--rerun` creates another execution for previously processed content.
 
 There is no sample-data generator in the application. Synthetic responses are restricted to automated tests and temporary databases.
 
@@ -76,52 +76,53 @@ See [the VM runbook](docs/VM-RUNBOOK.md) for clone, configuration, execution, up
 
 Both applications read the same workspace configuration in this order: built-in defaults, `appsettings.json`, `appsettings.local.json`, then standard `Section__Property` environment variables. JSON files allow comments and trailing commas. Paths are relative to the workspace marker unless absolute. `INVOICE_ROOT` explicitly selects a workspace.
 
+The complete required `appsettings.local.json` is:
+
+```json
+{
+  "DocumentIntelligence": {
+    "Endpoint": "https://YOUR-RESOURCE.cognitiveservices.azure.com/",
+    "ApiKey": "SET-ONLY-INSIDE-THE-VM"
+  }
+}
+```
+
+The API version is fixed in the client implementation. `Tier`, `ApiVersion`, `INVOICE_TIER`, and `AllowPaidFeatures` from older configurations are ignored. If an old local file contains pilot limits such as `MaxDocuments: 1`, replace it with the minimal example above to use the current defaults.
+
+All remaining settings are optional. For a different input folder, add `"Batch": { "InputDirectory": "C:/Invoices" }` at the root. The original 15 query fields are already included in the typed defaults in `src/InvoiceExplorer.Core/Settings.cs`. Override only the options needed for an experiment, either in the local JSON file or with environment variables:
+
 ```powershell
 $env:DocumentIntelligence__Endpoint = 'https://YOUR-RESOURCE.cognitiveservices.azure.com/'
 $env:DocumentIntelligence__ApiKey = 'SET-LOCALLY-ON-THE-CLIENT-VM'
 $env:DocumentIntelligence__QueryFields = '["VendorName","VendorAddress","VendorTaxId","CustomerName","CustomerAddress","InvoiceId","PurchaseOrder","InvoiceDate","DueDate","SubTotal","TotalTax","InvoiceTotal","AmountDue","Currency","PaymentTerms"]'
 ```
 
-The JSON array form replaces the whole list. Indexed variables such as `DocumentIntelligence__QueryFields__0` override individual entries; use the full JSON form to shorten a list. Historical `INVOICE_AZURE_ENDPOINT`, `INVOICE_AZURE_KEY`, `INVOICE_TIER`, and `INVOICE_DB` aliases remain supported and take final precedence. Remove old aliases when adopting standard settings. Old `invoice-settings.local.json` endpoint/key values are read only if the new local file is absent and the corresponding standard environment override is absent.
+The JSON array form replaces the whole list. Indexed variables such as `DocumentIntelligence__QueryFields__0` override individual entries; use the full JSON form to shorten a list. Historical `INVOICE_AZURE_ENDPOINT`, `INVOICE_AZURE_KEY`, and `INVOICE_DB` aliases remain supported and take final precedence. Remove old aliases when adopting standard settings. Old `invoice-settings.local.json` endpoint/key values are read only if the new local file is absent and the corresponding standard environment override is absent.
 
 | Setting | Purpose |
 | --- | --- |
-| `DocumentIntelligence.Endpoint`, `ApiKey` | Approved Azure resource credentials. Never distributed in the package. |
-| `ApiVersion`, `ModelId` | Stable REST version `2024-11-30`; original model `prebuilt-invoice`. |
-| `Tier` | Actual `F0` or `S0` resource tier. Changing this string does not change Azure billing or provision a resource. |
+| `DocumentIntelligence.Endpoint`, `ApiKey` | Required Azure resource endpoint and credential. Keep the key in the ignored local file. |
+| `ModelId` | Optional model override; defaults to `prebuilt-invoice`. |
 | `Locale` | Optional Azure locale hint, for example `en-US`; leave empty for mixed documents unless evaluated. |
-| `Pages` | Optional S0 subset, such as `1-3,5`. Any explicit subset blocks automatic readiness because completeness is unknown. |
+| `Pages` | Optional subset, such as `1-3,5`. Defaults to all pages. Any explicit subset blocks automatic readiness because completeness is unknown. |
 | `QueryFields` | At most 20 fields for the dedicated query pass. Not a replacement for `TargetFields`. |
 | `CustomModelId` | Optional already-trained custom model in the same resource. Training is performed separately in the client environment. |
-| `Batch.MaxDocuments` | Default selection count; overridden by `--limit` or `--all` in S0. |
+| `Batch.MaxDocuments` | Optional selection limit; overridden by `--limit` or `--all`. Defaults to all discovered inputs. |
 | `Concurrency`, `RequestsPerSecond` | Bounded workers and shared request pacing, including polling. |
-| `MaxAnalyzeRequests` | Durable per-batch ceiling on POST attempts, including retries and fallback passes. Increase and resume when exhausted. |
+| `MaxAnalyzeRequests` | Optional durable ceiling on POST attempts, including retries and fallback passes. Increase and resume when exhausted. |
 | `SkipPreviouslyCompleted` | Skip the same SHA-256 content under the same extraction-policy fingerprint. `--rerun` overrides this. |
 | `Pipeline.TargetFields` | Business fields included in coverage, decisions, and reports. All raw Azure fields are retained separately. |
 | `RequiredFields` | Missing values block readiness. Missing optional fields remain visible but do not independently block readiness. |
 | `AcceptanceConfidence`, `FieldThresholds` | Per-field acceptance policy. Setting `0.98` does not produce or prove 98% accuracy. |
-| `AllowPaidFeatures` | Explicit gate for query-field and high-resolution add-ons. Requires S0. |
 | `QueryMode` | `Off`, `Fallback` for unresolved configured fields, or `Always` for a controlled comparison. |
-| `HighResolutionFallback` | High-resolution OCR on the original PDF when review is still needed. Requires the paid-feature gate. |
+| `HighResolutionFallback` | High-resolution OCR on the original PDF when review is still needed. Enabled by default. |
 | `RasterFallback`, `RasterGrayscale` | Optional local render to lossless image-backed PDF. Off by default; validate benefit first. |
 | `RasterDpi`, `MaxRasterPages`, `MaxRasterPixels` | Rendering quality and memory bounds, checked before rendering each page. |
 | `MaxPasses` | Maximum strategies per invoice, 1–5. Order: Original, QueryFields, HighResolution, Raster, CustomModel. Disabled/inapplicable strategies do not consume a pass. |
 | `CheckTotals`, `AmountTolerance`, `CheckDateOrder` | Conservative consistency checks that flag issues without changing values. |
 | `Storage.*` | SQLite, CSV, and immutable source/variant directories. Use local writable storage. |
 
-The default configuration is conservative F0: **one PDF, first two pages, no paid add-ons**. A document with more than two pages is flagged as incomplete. The application caps F0 files at 4 MiB and S0 files at 64 MiB to bound memory use. Large merged PDFs should be split into individual invoices before processing. One logical invoice per PDF is expected; multiple detected documents block readiness and their fields are never combined.
-
-For F0, a local override can contain only credentials:
-
-```json
-{
-  "DocumentIntelligence": {
-    "Endpoint": "https://YOUR-RESOURCE.cognitiveservices.azure.com/",
-    "ApiKey": "SET-ONLY-INSIDE-THE-VM",
-    "Tier": "F0"
-  }
-}
-```
+Input PDFs have a 64 MiB application memory bound. One logical invoice per PDF is expected; multiple detected documents block readiness and their fields are never combined. When Azure returns fewer pages than the source contains, the execution is flagged as incomplete. Resource quotas and add-on support are determined by Azure, without a local tier selector.
 
 ## What the pipeline does
 

@@ -34,7 +34,7 @@ public class AzureClientTests
         Assert.Contains(path, calls[0].Url);
         Assert.Contains(apiVersion, calls[0].Url);
         Assert.Equal(new byte[] { 1, 2, 3 }, calls[0].Body);
-        Assert.Equal(!cu, calls[0].Url.Contains("pages=1-2"));
+        Assert.DoesNotContain("pages=", calls[0].Url);
         Assert.Equal(operation, calls[1].Url);
         Assert.Contains("analyzeResult", json);
     }

@@ -17,9 +17,9 @@ Run all following commands from this repository root. For an IDE workflow, open 
 
 ## Configure and start
 
-Copy `appsettings.local.example.json` to `appsettings.local.json`. Configure the approved resource endpoint, API key, and actual Azure tier locally in the VM. Keep the API version at `2024-11-30` unless evaluating a deliberate compatibility change. `QueryFields` controls the query pass; `TargetFields` controls decisions and reporting.
+Copy `appsettings.local.example.json` to `appsettings.local.json`. Enter only the approved resource endpoint and API key locally in the VM. The API version and model have internal defaults. Optional `QueryFields` overrides control the query pass; `TargetFields` controls decisions and reporting.
 
-The S0 template allows 10,000 documents and 30,000 analysis submissions per batch and enables query/high-resolution fallbacks. These limits are configurable. Without the local override, defaults remain F0 and one PDF. Environment variables override JSON. Keep `INVOICE_ROOT` unset for automatic discovery or set it to this checkout's absolute path.
+Defaults process all discovered PDFs and request all pages, with query/high-resolution fallbacks when needed. There is no small document-count or submission-count budget unless explicitly configured. Environment variables override JSON. Keep `INVOICE_ROOT` unset for automatic discovery or set it to this checkout's absolute path. When upgrading from an older configuration, replace the local file with the minimal example to remove old pilot limits; no tier selector is used.
 
 Create `invoices` locally and place PDFs there, including subfolders, or set `Batch.InputDirectory` to the approved input location. Then run:
 
@@ -35,14 +35,14 @@ The web app starts with no records and does not call Azure. Open `http://localho
 
 ## Pilot, then batch
 
-Use a representative pilot and inspect field evidence before processing everything. F0 deliberately processes one PDF and only its first two pages. S0 is needed by this application for large batches and paid add-ons. The Azure resource tier must actually match the local setting.
+Use `--limit N` for a representative pilot when needed. Otherwise, `extract` processes the full folder. Azure determines resource quotas and feature availability; the application does not ask for a tier or infer it from a local setting.
 
 ```powershell
 dotnet run --project src/InvoiceExplorer.Cli -c Release --no-build -- plan --all
 dotnet run --project src/InvoiceExplorer.Cli -c Release --no-build -- extract --all
 ```
 
-`plan` prints a conservative volume bound before duplicate skipping. It is not a price quote or an exact count of billed pages. Actual usage depends on fallbacks, retries, page selection, and the resource's pricing. The submission limit can stop a batch before every document finishes. Request pacing applies across all workers. Begin with low concurrency and rate values, then adjust using observed Azure quota behavior.
+`plan` prints a conservative volume bound before duplicate skipping. It is not a price quote or an exact count of billed pages. Actual usage depends on fallbacks, retries, page selection, and the resource's pricing. An optional `Batch.MaxAnalyzeRequests` limit can stop a batch before every document finishes. Request pacing applies across all workers. Begin with the default concurrency/rate values, then adjust using observed Azure quota behavior.
 
 Input discovery is recursive and deterministic. Reparse-point directories are skipped. Identical bytes within a batch are deduplicated; previously completed hashes under the same policy are skipped unless `--rerun` is set. “Completed” includes Review, because extraction did finish. A new model/policy fingerprint automatically permits a new execution. Changing filenames does not create new invoice identities.
 

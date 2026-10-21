@@ -47,14 +47,16 @@ Configuration fingerprints include the API/model, query fields, page settings, r
 | Order | Strategy | Input and trigger |
 | --- | --- | --- |
 | 1 | Original | Original PDF; configured invoice model; free key-value-pairs feature. Always runs. |
-| 2 | QueryFields | Original PDF; prebuilt-layout with queryFields; unresolved configured names or all in Always mode; paid gate. |
-| 3 | HighResolution | Original PDF; configured invoice model with ocrHighResolution; still Review; paid gate. |
+| 2 | QueryFields | Original PDF; prebuilt-layout with queryFields; unresolved configured names or all in Always mode. |
+| 3 | HighResolution | Original PDF; configured invoice model with ocrHighResolution; still Review and fallback enabled. |
 | 4 | Raster | Lossless page images in a new PDF; still Review and scanned/mixed/poor/unknown OCR; explicitly enabled. |
 | 5 | CustomModel | Original PDF; configured already-trained custom model; still Review. |
 
 `MaxPasses` counts strategies, including failed attempts, not HTTP retries. It is intentionally a ceiling; with all strategies enabled, a value of 3 leaves no room for Raster or CustomModel. To compare a custom model early, disable other fallbacks and use 2 passes, or use the custom model as `ModelId` for a separate experiment. Do not enable every option blindly. Compare one change at a time on the calibration set.
 
-Original snapshots are never altered. Rasterization is off by default. It preserves page geometry and page order; optional grayscale preserves luminance. It performs no deskew, perspective correction, language translation, fabricated text, automatic splitting, thresholding, or sharpening. Native rendering is bounded by pages/pixels and serialized per process to limit memory pressure. Input PDFs are bounded at 4 MiB F0 / 64 MiB S0; output raster PDFs also obey the Azure resource file-size limit.
+Original snapshots are never altered. Rasterization is off by default. It preserves page geometry and page order; optional grayscale preserves luminance. It performs no deskew, perspective correction, language translation, fabricated text, automatic splitting, thresholding, or sharpening. Native rendering is bounded by pages/pixels and serialized per process to limit memory pressure. Input PDFs are bounded at 64 MiB and raster output at 500 MiB. These local memory bounds are independent of service limits enforced by Azure.
+
+Endpoint and API key are the only required configuration values. The REST API version is fixed by the implementation and included in the fingerprint. Default discovery has no pilot cap, and default requests omit the page range to request the complete PDF. Returned page numbers are compared against source pages to detect service-side truncation. Explicit page subsets also block readiness. Query/high-resolution fallbacks are controlled directly by their own options, without a separate tier or feature gate. Policy version 3 invalidates resumption under the previous scheduling defaults; existing results remain readable.
 
 ## Selection and validation
 

@@ -14,7 +14,7 @@ public sealed class BatchRunner(Settings settings, InvoiceRepository repository,
         var options = new EnumerationOptions { RecurseSubdirectories = settings.Batch.Recursive, IgnoreInaccessible = false, AttributesToSkip = FileAttributes.ReparsePoint, MatchCasing = MatchCasing.CaseInsensitive };
         return Directory.EnumerateFiles(settings.InputDirectory, settings.FilePattern, options)
             .Where(f => Path.GetExtension(f).Equals(".pdf", StringComparison.OrdinalIgnoreCase))
-            .Order(StringComparer.OrdinalIgnoreCase).Take(settings.IsFree ? 1 : limit ?? settings.MaxDocuments).ToArray();
+            .Order(StringComparer.OrdinalIgnoreCase).Take(limit ?? settings.MaxDocuments).ToArray();
     }
 
     public async Task<string> CreateAsync(string[] files, bool rerun, CancellationToken token)
@@ -58,7 +58,7 @@ public sealed class BatchRunner(Settings settings, InvoiceRepository repository,
         var executions = repository.ListExecutions(batch, false).Where(e => !PipelineStatus.IsTerminal(e.Status)).ToArray();
         try
         {
-            await Parallel.ForEachAsync(executions, new ParallelOptions { MaxDegreeOfParallelism = settings.IsFree ? 1 : settings.Batch.Concurrency, CancellationToken = stop.Token }, async (row, ct) =>
+            await Parallel.ForEachAsync(executions, new ParallelOptions { MaxDegreeOfParallelism = settings.Batch.Concurrency, CancellationToken = stop.Token }, async (row, ct) =>
             {
                 try { await ProcessAsync(repository.GetExecution(row.Id)!, ct); }
                 catch (OperationCanceledException) { repository.SetExecutionStatus(row.Id, "Interrupted", "Processing interrupted. Resume this batch to poll any saved operation."); throw; }
@@ -88,7 +88,7 @@ public sealed class BatchRunner(Settings settings, InvoiceRepository repository,
         var artifact = await PdfPreparation.SnapshotAsync(bytes, execution.Hash, settings, token);
         repository.SetExecutionProfile(execution.Id, profile, artifact);
         var candidates = new List<FieldCandidate>(); var issues = new List<QualityIssue>();
-        if (settings.IsFree && profile.Pages > 2 || settings.DocumentIntelligence.Pages.Length > 0)
+        if (settings.DocumentIntelligence.Pages.Length > 0)
             issues.Add(new("PartialDocument", "Error", "Only the configured page range was analyzed. Completeness of the invoice is not established."));
         foreach (var warning in profile.Warnings) issues.Add(new("InputQuality", "Warning", warning));
         double? ocr = null; var count = 0;
@@ -142,26 +142,35 @@ public sealed class BatchRunner(Settings settings, InvoiceRepository repository,
                 issues.Add(new("PassFailed", "Warning", $"{request.Strategy}: {ex.Message}")); return;
             }
             candidates.AddRange(QualityEngine.ReadCandidates(json, id, request.Strategy, settings.Pipeline.TargetFields));
+            // Detect service-side truncation from returned evidence, without asking users to declare a tier.
+            using (var response = JsonDocument.Parse(json))
+            {
+                if (response.RootElement.TryGetProperty("analyzeResult", out var analysis) && analysis.TryGetProperty("pages", out var pages))
+                {
+                    var returnedPages = pages.EnumerateArray().Select(p => p.GetProperty("pageNumber").GetInt32()).ToHashSet();
+                    if (Enumerable.Range(1, profile.Pages).Except(returnedPages).Any() && !issues.Any(i => i.Code == "PartialDocument"))
+                        issues.Add(new("PartialDocument", "Error", $"{request.Strategy} returned {returnedPages.Count} of {profile.Pages} source pages. Completeness of the invoice is not established."));
+                }
+            }
             if (QualityEngine.DocumentCount(json) != 1) issues.Add(new("DocumentCount", "Error", "Expected exactly one invoice per PDF. No automatic approval is possible when zero or multiple documents are detected."));
             if (request.Strategy == "Original") ocr = QualityEngine.OcrConfidence(json);
             var csv = repository.GetRun(id)!.Csv; Directory.CreateDirectory(settings.ExportDirectory);
             await File.WriteAllTextAsync(Path.Combine(settings.ExportDirectory, $"run-{id:D6}.csv"), csv, new UTF8Encoding(true), token);
             log?.Invoke($"Execution #{execution.Id} / {request.Strategy}: {Decision().Status}, {Decision().Coverage:P0} target coverage.");
         }
-        AnalysisRequest Request(string strategy, string model, string[] features, string[]? fields = null) => new(strategy, model, features, fields ?? [], settings.IsFree && profile.Pages == 1 ? "1" : settings.PageRange, settings.DocumentIntelligence.Locale);
+        AnalysisRequest Request(string strategy, string model, string[] features, string[]? fields = null) => new(strategy, model, features, fields ?? [], settings.PageRange, settings.DocumentIntelligence.Locale);
         await Pass(Request("Original", settings.ModelId, ["keyValuePairs"]), bytes);
-        var paid = settings.Pipeline.AllowPaidFeatures && !settings.IsFree;
         var queryFields = settings.DocumentIntelligence.QueryFields.Where(name => settings.Pipeline.QueryMode == "Always" || Decision().Fields.Any(f => f.Name == name && f.State != "Accepted")).ToArray();
-        if (paid && settings.Pipeline.QueryMode != "Off" && queryFields.Length > 0)
+        if (settings.Pipeline.QueryMode != "Off" && queryFields.Length > 0)
             await Pass(Request("QueryFields", "prebuilt-layout", ["queryFields"], queryFields), bytes);
-        if (Decision().Status == "Review" && paid && settings.Pipeline.HighResolutionFallback)
+        if (Decision().Status == "Review" && settings.Pipeline.HighResolutionFallback)
             await Pass(Request("HighResolution", settings.ModelId, ["keyValuePairs", "ocrHighResolution"]), bytes);
         if (Decision().Status == "Review" && settings.Pipeline.RasterFallback && count < settings.Pipeline.MaxPasses && (profile.Kind != "Digital" || ocr is null || ocr < settings.Pipeline.MinimumOcrConfidence))
         {
             try
             {
                 var variant = await PdfPreparation.RasterizeAsync(bytes, settings.Pipeline, token);
-                if (variant.Length > (settings.IsFree ? 4L : 500L) * 1024 * 1024) throw new InvalidOperationException("Rasterized PDF exceeds the resource file-size limit.");
+                if (variant.Length > 500L * 1024 * 1024) throw new InvalidOperationException("Rasterized PDF exceeds the 500 MiB output limit.");
                 var variantDirectory = Path.Combine(settings.Storage.ArtifactDirectory, "variants"); Directory.CreateDirectory(variantDirectory);
                 await File.WriteAllBytesAsync(Path.Combine(variantDirectory, $"execution-{execution.Id}-raster.pdf"), variant, token);
                 await Pass(Request("Raster", settings.ModelId, ["keyValuePairs"]), variant);
@@ -171,15 +180,14 @@ public sealed class BatchRunner(Settings settings, InvoiceRepository repository,
         }
         if (Decision().Status == "Review" && settings.DocumentIntelligence.CustomModelId.Length > 0)
             await Pass(Request("CustomModel", settings.DocumentIntelligence.CustomModelId, []), bytes);
-        if (!paid && settings.Pipeline.QueryMode != "Off") issues.Add(new("PaidFeaturesDisabled", "Info", "Query fields and high-resolution fallback were skipped. Paid features require S0 and AllowPaidFeatures=true."));
         if (ocr is not null && ocr < settings.Pipeline.MinimumOcrConfidence) issues.Add(new("LowOcr", "Warning", $"Original OCR mean confidence is {ocr:P1}. Inspect image quality before relying on extracted values."));
         repository.SaveDecision(execution.Id, Decision());
     }
     private async Task<byte[]> ReadSourceAsync(string path, CancellationToken token)
     {
         var size = new FileInfo(path).Length;
-        // Bound concurrent memory use in the portable spike. Azure's service maximum is higher on S0.
-        if (size > (settings.IsFree ? 4L : 64L) * 1024 * 1024) throw new InvalidDataException("PDF exceeds the application size limit (F0: 4 MiB; S0: 64 MiB). Split oversized input before processing.");
+        // Bound concurrent memory use independently of the Azure resource's service limits.
+        if (size > 64L * 1024 * 1024) throw new InvalidDataException("PDF exceeds the application memory limit of 64 MiB. Split oversized input before processing.");
         return await File.ReadAllBytesAsync(path, token);
     }
 }

@@ -31,8 +31,8 @@ Templates intentionally do not prefill expected values with predictions. Remove 
 | Experiment | Configuration change | Question it answers |
 | --- | --- | --- |
 | Original baseline | QueryMode Off, HighResolutionFallback false, RasterFallback false, CustomModelId empty, MaxPasses 1 | What does prebuilt-invoice get right on the original bytes? |
-| Targeted query | AllowPaidFeatures true, QueryMode Fallback, MaxPasses 2; other fallbacks off | Do query fields recover missing/uncertain targets without creating excessive conflicts? |
-| High-resolution OCR | QueryMode Off, HighResolutionFallback true, paid gate, MaxPasses 2 | Are failures caused by small or difficult text? |
+| Targeted query | QueryMode Fallback, MaxPasses 2; other fallbacks off | Do query fields recover missing/uncertain targets without creating excessive conflicts? |
+| High-resolution OCR | QueryMode Off, HighResolutionFallback true, MaxPasses 2 | Are failures caused by small or difficult text? |
 | Rendered scan | QueryMode Off, HighResolutionFallback false, RasterFallback true, MaxPasses 2 | Does controlled re-rendering help this scan population? |
 | Vendor custom model | CustomModelId set, other fallbacks off, MaxPasses 2 | Does representative supervised training improve field assignment? |
 

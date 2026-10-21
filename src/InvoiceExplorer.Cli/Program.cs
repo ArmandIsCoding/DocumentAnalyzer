@@ -24,7 +24,7 @@ try
               labels-import PATH             Import completed JSON labels (append-only audit history).
               list                           List raw invoice history (legacy view).
             Shared configuration: appsettings.json + appsettings.local.json + Section__Property environment variables.
-            F0: one PDF, first two pages, no paid add-ons. S0 batches require the actual resource tier in configuration.
+            Set DocumentIntelligence.Endpoint and ApiKey. Defaults process invoices/ recursively with all pages.
             Confidence is not measured accuracy. A 0.98 threshold does not establish 98% correctness.
             """); return 0;
     }
@@ -34,7 +34,7 @@ try
     string? Option(string name) { var i = Array.IndexOf(args, name); return i < 0 ? null : i + 1 < args.Length ? args[i + 1] : throw new ArgumentException($"Missing value after {name}."); }
     if (command == "doctor")
     {
-        Console.WriteLine($"Workspace: {settings.RootDirectory}\nProvider: Document Intelligence {settings.ApiVersion}\nTier: {settings.Tier}\nEndpoint configured: {!string.IsNullOrWhiteSpace(settings.Endpoint)}\nAPI key configured: {!string.IsNullOrWhiteSpace(settings.ApiKey)}\nRecursive input: {settings.InputDirectory}\nSQLite: {settings.DatabasePath}\nPaid add-ons enabled: {settings.Pipeline.AllowPaidFeatures}");
+        Console.WriteLine($"Workspace: {settings.RootDirectory}\nEndpoint configured: {!string.IsNullOrWhiteSpace(settings.Endpoint)}\nAPI key configured: {!string.IsNullOrWhiteSpace(settings.ApiKey)}\nInput: {settings.InputDirectory}\nSQLite: {settings.DatabasePath}");
         var sample = BatchRunner.Discover(settings, 1).FirstOrDefault();
         if (sample is not null)
         {
@@ -89,7 +89,7 @@ try
     if (command is not ("plan" or "extract" or "resume")) throw new ArgumentException($"Unknown command: {command}. Use --help.");
     int? limit = null;
     if (Option("--limit") is { } value) limit = int.TryParse(value, out var number) && number > 0 ? number : throw new ArgumentException("--limit must be positive.");
-    if (args.Contains("--all")) { if (settings.IsFree) throw new ArgumentException("--all is disabled in F0 mode. Set the actual Azure resource tier first."); limit = int.MaxValue; }
+    if (args.Contains("--all")) limit = int.MaxValue;
     var files = command == "resume" ? [] : BatchRunner.Discover(settings, limit, Option("--file"));
     if (command == "plan")
     {
@@ -97,10 +97,11 @@ try
         foreach (var path in files)
         {
             cancellation.Token.ThrowIfCancellationRequested();
-            try { if (new FileInfo(path).Length > (settings.IsFree ? 4L : 64L) * 1024 * 1024) throw new InvalidDataException("Input exceeds the application size limit."); var profile = PdfPreparation.Inspect(await File.ReadAllBytesAsync(path, cancellation.Token)); pages += settings.IsFree ? Math.Min(2, profile.Pages) : profile.Pages; if (profile.Kind == "Digital") digital++; else scanned++; }
+            try { if (new FileInfo(path).Length > 64L * 1024 * 1024) throw new InvalidDataException("Input exceeds the application memory limit of 64 MiB."); var profile = PdfPreparation.Inspect(await File.ReadAllBytesAsync(path, cancellation.Token)); pages += profile.Pages; if (profile.Kind == "Digital") digital++; else scanned++; }
             catch (Exception ex) when (ex is not OperationCanceledException) { invalid++; Console.WriteLine($"Input issue: {Path.GetFileName(path)}: {ex.GetType().Name}"); }
         }
-        Console.WriteLine($"Plan: {files.Length} PDFs; {pages} source pages; {digital} digital, {scanned} scanned/mixed, {invalid} unreadable.\nUpper bound before duplicate skipping: {(long)(files.Length - invalid) * settings.Pipeline.MaxPasses} analyze operations / {(long)pages * settings.Pipeline.MaxPasses} analyzed pages.\nHard analyze-request budget: {settings.Batch.MaxAnalyzeRequests}. Paid add-ons: {settings.Pipeline.AllowPaidFeatures}.\nThis is a volume bound, not a price quote. No files were submitted to Azure."); return 0;
+        var budget = settings.Batch.MaxAnalyzeRequests == int.MaxValue ? "not configured" : settings.Batch.MaxAnalyzeRequests.ToString();
+        Console.WriteLine($"Plan: {files.Length} PDFs; {pages} source pages; {digital} digital, {scanned} scanned/mixed, {invalid} unreadable.\nUpper bound before duplicate skipping: {(long)(files.Length - invalid) * settings.Pipeline.MaxPasses} analyze operations / {(long)pages * settings.Pipeline.MaxPasses} analyzed pages.\nAnalyze-request budget: {budget}.\nThis is a volume bound, not a price quote. No files were submitted to Azure."); return 0;
     }
     settings.ValidateAzure();
     // A process lock prevents two consoles from independently claiming the same durable work queue.
@@ -108,7 +109,7 @@ try
     string? batchId = command == "resume" ? args.ElementAtOrDefault(1) ?? throw new ArgumentException("Specify a batch ID.") : null;
     using var handler = new HttpClientHandler { AllowAutoRedirect = false };
     using var http = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
-    var client = new AzureInvoiceClient(http, settings, new RequestPacer(settings.IsFree ? 1 : settings.Batch.RequestsPerSecond), () => repo.ReserveRequest(batchId!, settings.Batch.MaxAnalyzeRequests));
+    var client = new AzureInvoiceClient(http, settings, new RequestPacer(settings.Batch.RequestsPerSecond), () => repo.ReserveRequest(batchId!, settings.Batch.MaxAnalyzeRequests));
     var runner = new BatchRunner(settings, repo, client, Console.WriteLine);
     batchId ??= await runner.CreateAsync(files, args.Contains("--rerun"), cancellation.Token);
     Console.WriteLine($"Batch: {batchId}\nResume command: resume {batchId}");
