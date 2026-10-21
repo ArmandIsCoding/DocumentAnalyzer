@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "Validate configuration": {
+      "commandName": "Project",
+      "commandLineArgs": "doctor"
+    },
+    "Preview batch": {
+      "commandName": "Project",
+      "commandLineArgs": "plan"
+    },
+    "Extract configured batch": {
+      "commandName": "Project",
+      "commandLineArgs": "extract"
+    },
+    "Extract all invoices": {
+      "commandName": "Project",
+      "commandLineArgs": "extract --all"
+    }
+  }
+}

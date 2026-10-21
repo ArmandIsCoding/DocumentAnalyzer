@@ -29,6 +29,8 @@ git clone <repository-url> DocumentAnalyzer
 cd DocumentAnalyzer
 ```
 
+For Visual Studio, open `InvoiceExplorer.slnx`, expand **Configuration**, and follow the [Visual Studio setup and F5 debugging guide](docs/VISUAL-STUDIO.md). The console includes profiles for configuration validation, input inspection, and extraction. Set **InvoiceExplorer.Web** as the startup project to debug the review interface.
+
 Run these commands **from the repository root**:
 
 ```powershell

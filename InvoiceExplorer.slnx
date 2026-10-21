@@ -1,4 +1,13 @@
 <Solution>
+  <Folder Name="/Configuration/">
+    <File Path="appsettings.json" />
+    <File Path="appsettings.local.example.json" />
+  </Folder>
+  <Folder Name="/Documentation/">
+    <File Path="README.md" />
+    <File Path="docs/VISUAL-STUDIO.md" />
+    <File Path="docs/VM-RUNBOOK.md" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/InvoiceExplorer.Cli/InvoiceExplorer.Cli.csproj" />
     <Project Path="src/InvoiceExplorer.Core/InvoiceExplorer.Core.csproj" />

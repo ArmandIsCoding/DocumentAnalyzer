@@ -29,6 +29,8 @@ dotnet run --project src/InvoiceExplorer.Web -c Release --no-build --urls http:/
 
 `doctor`, `plan`, and starting the web application do not call Azure. `extract` submits documents and may incur charges. Deployment uses GitHub and a source clone in the VM. Do not generate ZIP deliverables or restore the retired packaging scripts.
 
+Visual Studio users configure the root files through linked **Configuration** items and use the committed CLI/Web launch profiles. Keep profiles free of credentials and machine-specific paths. `Validate configuration` is the first CLI profile; extraction profiles must remain explicit. See `docs/VISUAL-STUDIO.md`.
+
 ## Configuration and data
 
 - `invoice-workspace.marker` identifies the workspace. Shared configuration comes from `appsettings.json`, `appsettings.local.json`, and supported environment overrides. `INVOICE_ROOT` can explicitly select another workspace; never hardcode a developer checkout path.

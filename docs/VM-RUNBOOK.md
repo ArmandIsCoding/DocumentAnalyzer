@@ -13,7 +13,7 @@ dotnet build InvoiceExplorer.slnx -c Release --no-restore
 dotnet test tests/InvoiceExplorer.Tests -c Release --no-build
 ```
 
-Run all following commands from this repository root. Open `InvoiceExplorer.slnx` if using Visual Studio. Do not transfer this development machine's invoice folder, databases, credentials, responses, logs, or screenshots.
+Run all following commands from this repository root. For an IDE workflow, open `InvoiceExplorer.slnx` and use the [Visual Studio configuration and F5 guide](VISUAL-STUDIO.md). Shared settings are visible in **Configuration**, and the CLI/Web projects include launch profiles. Do not transfer this development machine's invoice folder, databases, credentials, responses, logs, or screenshots.
 
 ## Configure and start
 

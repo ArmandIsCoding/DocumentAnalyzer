@@ -2,9 +2,20 @@
   <PropertyGroup>
     <Deterministic>true</Deterministic>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
-    <!-- Keep lock files stable between normal builds and Windows portable publication. -->
+    <!-- Resolve Windows x64 native PDF/SQLite assets consistently across build configurations. -->
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <NuGetAudit>true</NuGetAudit>
     <NuGetAuditMode>all</NuGetAuditMode>
   </PropertyGroup>
+  <!-- Both startup projects edit the same root files. Never copy configuration or credentials
+       beside binaries: Settings.FindRoot resolves the checkout using invoice-workspace.marker. -->
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'InvoiceExplorer.Cli' Or '$(MSBuildProjectName)' == 'InvoiceExplorer.Web'">
+    <None Include="$(MSBuildThisFileDirectory)appsettings.json"
+          Link="Configuration\appsettings.json" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
+    <None Include="$(MSBuildThisFileDirectory)appsettings.local.example.json"
+          Link="Configuration\appsettings.local.example.json" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
+    <None Include="$(MSBuildThisFileDirectory)appsettings.local.json"
+          Link="Configuration\appsettings.local.json" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never"
+          Condition="Exists('$(MSBuildThisFileDirectory)appsettings.local.json')" />
+  </ItemGroup>
 </Project>
