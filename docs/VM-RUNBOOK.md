@@ -17,7 +17,7 @@ Run all following commands from this repository root. For an IDE workflow, open 
 
 ## Configure and start
 
-Copy `appsettings.local.example.json` to `appsettings.local.json`. Enter only the approved resource endpoint and API key locally in the VM. The API version and model have internal defaults. Optional `QueryFields` overrides control the query pass; `TargetFields` controls decisions and reporting.
+Copy `appsettings.local.example.json` to `appsettings.local.json`. Enter the approved resource endpoint and API key locally in the VM, and review the explicit `ModelId` and `Locale` fields. The template uses `prebuilt-invoice` and an empty locale; set a value such as `en-US` when an explicit language hint is intended. The API version remains internal. Optional `QueryFields` overrides control the query pass; `TargetFields` controls decisions and reporting.
 
 Defaults process all discovered PDFs and request all pages, with query/high-resolution fallbacks when needed. There is no small document-count or submission-count budget unless explicitly configured. Environment variables override JSON. Keep `INVOICE_ROOT` unset for automatic discovery or set it to this checkout's absolute path. When upgrading from an older configuration, replace the local file with the minimal example to remove old pilot limits; no tier selector is used.
 
@@ -31,7 +31,7 @@ dotnet run --project src/InvoiceExplorer.Web -c Release --no-build --urls http:/
 
 The web app starts with no records and does not call Azure. Open `http://localhost:5180` in a browser inside the VM. Use a second terminal at the repository root for extraction commands while the web process runs. Stop the web process with Ctrl+C. Non-loopback requests are rejected; this application has no multi-user authentication.
 
-`doctor` checks resolved paths, configured credential presence, and local PDF processing. It does not print the API key or call Azure. Native rendering is exercised only if the first input has at most two pages. A successful check does not establish Azure authentication, quota, or feature availability.
+`doctor` checks resolved paths, configured credential presence, and local PDF processing, and displays the resolved model and locale. It does not print the API key or call Azure. Native rendering is exercised only if the first input has at most two pages. A successful check does not establish Azure authentication, quota, or feature availability.
 
 ## Pilot, then batch
 

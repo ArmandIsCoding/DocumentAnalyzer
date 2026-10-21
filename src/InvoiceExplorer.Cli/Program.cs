@@ -34,7 +34,7 @@ try
     string? Option(string name) { var i = Array.IndexOf(args, name); return i < 0 ? null : i + 1 < args.Length ? args[i + 1] : throw new ArgumentException($"Missing value after {name}."); }
     if (command == "doctor")
     {
-        Console.WriteLine($"Workspace: {settings.RootDirectory}\nEndpoint configured: {!string.IsNullOrWhiteSpace(settings.Endpoint)}\nAPI key configured: {!string.IsNullOrWhiteSpace(settings.ApiKey)}\nInput: {settings.InputDirectory}\nSQLite: {settings.DatabasePath}");
+        Console.WriteLine($"Workspace: {settings.RootDirectory}\nEndpoint configured: {!string.IsNullOrWhiteSpace(settings.Endpoint)}\nAPI key configured: {!string.IsNullOrWhiteSpace(settings.ApiKey)}\nInvoice model: {settings.ModelId}\nLocale: {(settings.DocumentIntelligence.Locale.Length == 0 ? "not specified" : settings.DocumentIntelligence.Locale)}\nInput: {settings.InputDirectory}\nSQLite: {settings.DatabasePath}");
         var sample = BatchRunner.Discover(settings, 1).FirstOrDefault();
         if (sample is not null)
         {

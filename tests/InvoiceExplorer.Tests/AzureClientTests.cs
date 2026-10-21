@@ -1,10 +1,67 @@
 using System.Net;
+using System.Text.Json;
 using InvoiceExplorer.Core;
 
 namespace InvoiceExplorer.Tests;
 
 public class AzureClientTests
 {
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("")]
+    public async Task JsonSettingsReachHttpRequestsAcrossPipelinePasses(string locale)
+    {
+        using var workspace = new Workspace();
+        File.WriteAllText(Path.Combine(workspace.Root, "appsettings.json"), JsonSerializer.Serialize(new
+        {
+            DocumentIntelligence = new
+            {
+                Endpoint = "https://configured-resource.example/",
+                ApiKey = "configured-test-key",
+                ModelId = "configured-invoice-model",
+                Locale = locale
+            }
+        }));
+        var settings = Settings.Load(workspace.Root);
+        settings.ValidateAzure();
+        settings.Pipeline.TargetFields = ["InvoiceId"];
+        settings.Pipeline.RequiredFields = ["InvoiceId"];
+        var submissions = new List<Uri>();
+        using var http = new HttpClient(new FakeHandler(request =>
+        {
+            // Verify the loaded endpoint and key on both submission and polling requests.
+            Assert.Equal("configured-resource.example", request.RequestUri!.Host);
+            Assert.Equal("configured-test-key", request.Headers.GetValues("Ocp-Apim-Subscription-Key").Single());
+            if (request.Method == HttpMethod.Post)
+            {
+                submissions.Add(request.RequestUri);
+                var accepted = new HttpResponseMessage(HttpStatusCode.Accepted);
+                accepted.Headers.Add("Operation-Location", $"https://configured-resource.example/results/{submissions.Count}");
+                accepted.Headers.RetryAfter = new(TimeSpan.Zero);
+                return Task.FromResult(accepted);
+            }
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(Workspace.Response(score: submissions.Count == 3 ? .99 : .74))
+            });
+        }));
+        var runner = new BatchRunner(settings, workspace.Repo, new AzureInvoiceClient(http, settings));
+        var batch = await runner.CreateAsync([workspace.Pdf()], false, default);
+        await runner.RunAsync(batch, default);
+
+        Assert.Equal("Ready", Assert.Single(workspace.Repo.ListExecutions()).Status);
+        Assert.Equal(3, submissions.Count);
+        Assert.EndsWith("/configured-invoice-model:analyze", submissions[0].AbsolutePath);
+        Assert.EndsWith("/prebuilt-layout:analyze", submissions[1].AbsolutePath);
+        Assert.EndsWith("/configured-invoice-model:analyze", submissions[2].AbsolutePath);
+        Assert.Contains("ocrHighResolution", submissions[2].Query);
+        foreach (var uri in submissions)
+        {
+            if (locale.Length == 0) Assert.DoesNotContain("locale=", uri.Query);
+            else Assert.Contains("locale=" + locale, uri.Query);
+        }
+    }
+
     [Theory]
     [InlineData(false, "documentintelligence/documentModels/prebuilt-invoice:analyze", "2024-11-30")]
     [InlineData(true, "contentunderstanding/analyzers/prebuilt-invoice:analyzeBinary", "2025-11-01")]

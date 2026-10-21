@@ -13,8 +13,8 @@ src/InvoiceExplorer.Cli/             Batch processing and operator commands
 src/InvoiceExplorer.Web/             Blazor Server dashboard and review workspace
 tests/InvoiceExplorer.Tests/         Automated pipeline and integration tests
 docs/                               Architecture, evaluation, validation, and VM runbook
-appsettings.json                    Shared endpoint/key placeholders
-appsettings.local.example.json      Local endpoint/key template
+appsettings.json                    Shared endpoint/key/model/locale settings
+appsettings.local.example.json      Local configuration template
 invoice-workspace.marker            Workspace root discovery
 ```
 
@@ -42,7 +42,7 @@ dotnet run --project src/InvoiceExplorer.Web -c Release --no-build --urls http:/
 
 Open `http://localhost:5180`. A new workspace contains no extraction records. Counts are zero, confidence and coverage are unavailable, and accuracy is not measured until reference labels are supplied. Starting the web app does not call Azure or generate sample records. Stop the web process with Ctrl+C.
 
-For real extraction, copy `appsettings.local.example.json` to `appsettings.local.json`, enter the Azure endpoint and API key, and create the `invoices` directory for your PDFs. Run:
+For real extraction, copy `appsettings.local.example.json` to `appsettings.local.json`, enter the Azure endpoint and API key, review the explicit `ModelId` and `Locale` values, and create the `invoices` directory for your PDFs. Run:
 
 ```powershell
 dotnet run --project src/InvoiceExplorer.Cli -c Release --no-build -- doctor
@@ -76,18 +76,22 @@ See [the VM runbook](docs/VM-RUNBOOK.md) for clone, configuration, execution, up
 
 Both applications read the same workspace configuration in this order: built-in defaults, `appsettings.json`, `appsettings.local.json`, then standard `Section__Property` environment variables. JSON files allow comments and trailing commas. Paths are relative to the workspace marker unless absolute. `INVOICE_ROOT` explicitly selects a workspace.
 
-The complete required `appsettings.local.json` is:
+The `appsettings.local.json` template exposes the four connection/extraction settings:
 
 ```json
 {
   "DocumentIntelligence": {
     "Endpoint": "https://YOUR-RESOURCE.cognitiveservices.azure.com/",
-    "ApiKey": "SET-ONLY-INSIDE-THE-VM"
+    "ApiKey": "SET-ONLY-INSIDE-THE-VM",
+    "ModelId": "prebuilt-invoice",
+    "Locale": ""
   }
 }
 ```
 
-The API version is fixed in the client implementation. `Tier`, `ApiVersion`, `INVOICE_TIER`, and `AllowPaidFeatures` from older configurations are ignored. If an old local file contains pilot limits such as `MaxDocuments: 1`, replace it with the minimal example above to use the current defaults.
+`ModelId` is used by the original, high-resolution, and optional raster passes. The query-field pass uses `prebuilt-layout`; a custom-model pass uses its separate `CustomModelId`. `Locale` is applied to every pass when nonempty, for example `en-US`; an empty value omits the locale parameter. The `doctor` command displays the resolved invoice model and locale without printing the key.
+
+The API version is fixed in the client implementation. `Tier`, `ApiVersion`, `INVOICE_TIER`, and `AllowPaidFeatures` from older configurations are ignored. If an old local file contains pilot limits such as `MaxDocuments: 1`, replace it with the example above to use the current defaults.
 
 All remaining settings are optional. For a different input folder, add `"Batch": { "InputDirectory": "C:/Invoices" }` at the root. The original 15 query fields are already included in the typed defaults in `src/InvoiceExplorer.Core/Settings.cs`. Override only the options needed for an experiment, either in the local JSON file or with environment variables:
 

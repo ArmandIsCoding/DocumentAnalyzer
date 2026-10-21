@@ -35,7 +35,7 @@ Visual Studio users configure the root files through linked **Configuration** it
 
 - `invoice-workspace.marker` identifies the workspace. Shared configuration comes from `appsettings.json`, `appsettings.local.json`, and supported environment overrides. `INVOICE_ROOT` can explicitly select another workspace; never hardcode a developer checkout path.
 - Keep credentials in the ignored local settings file or the client's approved secret mechanism. Never print keys or commit populated credentials.
-- Initial configuration requires only endpoint and API key. Keep the API version internal; do not reintroduce tier selectors, paid-feature gates, or small pilot limits. Defaults process the full folder and request all pages. Experiment limits and strategy overrides remain optional.
+- Keep Endpoint, ApiKey, ModelId, and Locale explicit in both root configuration templates. ModelId defaults to prebuilt-invoice; an empty Locale omits the language hint. Keep the API version internal; do not reintroduce tier selectors, paid-feature gates, or small pilot limits. Defaults process the full folder and request all pages. Experiment limits and strategy overrides remain optional.
 - Local invoices, SQLite databases and sidecars, extraction artifacts, exports, screenshots, build outputs, temporary files, and portable packages are ignored. Do not include them in commits or source packages.
 - SQLite schema changes must be additive and preserve raw history, attempts, labels, and resumable state. Existing stored artifact paths can be absolute; see the VM runbook before relocating populated results.
 
