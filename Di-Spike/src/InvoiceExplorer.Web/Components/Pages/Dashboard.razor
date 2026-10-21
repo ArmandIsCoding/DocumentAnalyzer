@@ -1,0 +1,94 @@
+@page "/"
+@inject InvoiceRepository Repository
+<PageTitle>Invoice Explorer | Quality dashboard</PageTitle>
+
+<section class="page-heading dashboard-heading">
+    <div><p class="eyebrow">INVOICE INTELLIGENCE / QUALITY CONTROL</p><h1>Confidence, with evidence.</h1><p class="subtitle">A clear view of extraction quality, exceptions, and business readiness.</p></div>
+    <div class="download-actions"><button class="button secondary" @onclick="Reload">Refresh</button><a class="button primary" href="@(ExportUrl+"&shape=wide")" download>Export business report</a><a class="button secondary" href="@ExportUrl" download>Field detail CSV</a></div>
+</section>
+<div class="dashboard-filters panel">
+    <label>Workspace<select @bind="workspaceMode" @bind:after="Reset"><option value="real">Real extractions</option><option value="demo">Fictional demo</option></select></label>
+    <label>Batch<select @bind="batch" @bind:after="Reload"><option value="">All batches · latest per invoice</option>@foreach(var b in batches.Where(b => b.IsDemo == demo)) { <option value="@b.Id">@b.Id · @b.Status</option> }</select></label>
+    <span class="muted">@(demo ? "Demonstration workspace" : "Data stays in this workspace and your configured Azure resource")</span>
+</div>
+@if(demo) { <div class="notice demo"><b>FICTIONAL DEMO</b><span>All values, confidence scores, and labels below are simulated. These numbers do not establish real extraction performance.</span></div> }
+<section class="quality-kpis">
+    <div class="kpi"><span>Invoices in scope</span><strong>@rows.Count</strong><small>Latest execution for each source hash</small></div>
+    <div class="kpi positive"><span>Ready under policy</span><strong>@rows.Count(r => r.Status == "Ready")</strong><small>@Pct(ReadyRate) of all invoices in scope</small></div>
+    <div class="kpi attention"><span>Needs review</span><strong>@rows.Count(r => r.Status == "Review")</strong><small>Missing, uncertain, or conflicting values</small></div>
+    <div class="kpi"><span>Mean field confidence</span><strong>@Pct(Mean)</strong><small>Azure scores · @Scored of @TargetSlots target fields scored</small></div>
+</section>
+<div class="report-grid">
+    <section class="panel report-panel">
+        <div class="panel-heading"><div><p class="eyebrow">COMPLETENESS</p><h2>Every target field counts.</h2></div><span class="badge">@Pct(Coverage) present</span></div>
+        <p class="muted">Coverage includes missing optional fields in completed extractions. Failed and pending invoices are counted in Operations below. Confidence averages scored values; it does not measure accuracy.</p>
+        @if(metrics.Count == 0) { <div class="empty-chart">Run a batch to see field coverage and confidence.</div> }
+        @foreach(var field in metrics)
+        {
+            <div class="metric-row"><span>@field.Name</span><div class="metric-track" title="@($"{field.Present}/{field.Invoices} values present")"><span style="@Width(field.Invoices == 0 ? 0 : field.Present/(double)field.Invoices)"></span></div><b>@Pct(field.MeanConfidence)</b><small>@field.Present / @field.Invoices</small></div>
+        }
+        <div class="chart-legend"><span><i></i> Bar: field coverage</span><span>Number: mean Azure confidence</span></div>
+    </section>
+    <div class="insight-stack">
+        <section class="panel report-panel benchmark-panel">
+            <p class="eyebrow">INDEPENDENTLY REVIEWED LABELS / TEST SPLIT</p><h2>Accuracy must be measured.</h2>
+            <div class="benchmark-value">@Pct(evaluation?.Accuracy)</div>
+            <p>Exact normalized matches on fields labeled as present. Missing predictions count as incorrect.</p>
+            <dl class="report-facts"><div><dt>Original PDF baseline</dt><dd>@Pct(evaluation?.BaselineAccuracy)</dd></div><div><dt>Labeled invoices / fields</dt><dd>@(evaluation?.LabeledInvoices ?? 0) / @(evaluation?.LabeledFields ?? 0)</dd></div><div><dt>95% Wilson lower bound</dt><dd>@Pct(evaluation?.WilsonLower95)</dd></div><div><dt>Ready-invoice field precision</dt><dd>@Pct(evaluation?.AcceptedPrecision)</dd></div></dl>
+            <p class="muted">Evaluation uses the latest execution across batches in this workspace. The interval is descriptive; correlated fields within invoices limit statistical independence.</p>
+            @if(evaluation?.Rows.Count>0)
+            {
+                <details class="benchmark-detail"><summary>Test accuracy by field</summary><div class="table-wrap"><table><thead><tr><th>Field</th><th>Reviewed present</th><th>Baseline</th><th>Final</th></tr></thead><tbody>
+                @foreach(var group in evaluation.Rows.Where(r=>r.ExpectedPresent).GroupBy(r=>r.Field).OrderBy(g=>g.Key))
+                { <tr><td>@group.Key</td><td>@group.Count()</td><td>@Pct(group.Count(r=>r.BaselineCorrect)/(double)group.Count())</td><td>@Pct(group.Count(r=>r.Correct)/(double)group.Count())</td></tr> }
+                </tbody></table></div></details>
+            }
+            <a href="/guide#evaluation">How to establish a reliable benchmark →</a>
+        </section>
+        <section class="panel report-panel">
+            <p class="eyebrow">OPERATIONS</p><h2>Nothing disappears from the denominator.</h2>
+            <dl class="report-facts"><div><dt>Failed or ambiguous</dt><dd>@rows.Count(r => r.Status is "Failed" or "Ambiguous")</dd></div><div><dt>Pending / interrupted</dt><dd>@rows.Count(r => !PipelineStatus.IsTerminal(r.Status))</dd></div><div><dt>Field conflicts</dt><dd>@metrics.Sum(f => f.Conflicts)</dd></div><div><dt>Recorded passes</dt><dd>@rows.Sum(r => r.Attempts)</dd></div></dl>
+        </section>
+    </div>
+</div>
+<section class="panel report-panel vendor-report">
+    <div class="panel-heading"><div><p class="eyebrow">VENDOR BREAKDOWN</p><h2>Focus improvement where it matters.</h2></div><span class="muted">Largest vendor groups · up to 10</span></div>
+    <div class="table-wrap"><table><thead><tr><th>Vendor</th><th>Invoices</th><th>Ready</th><th>Review</th><th>Failed / pending</th><th>Ready rate</th></tr></thead><tbody>
+    @foreach(var vendor in rows.GroupBy(r=>r.Vendor.Length==0?"Vendor not extracted":r.Vendor).OrderByDescending(g=>g.Count()).Take(10))
+    { <tr><td>@vendor.Key</td><td>@vendor.Count()</td><td>@vendor.Count(r=>r.Status=="Ready")</td><td>@vendor.Count(r=>r.Status=="Review")</td><td>@vendor.Count(r=>!PipelineStatus.IsCompleted(r.Status))</td><td>@Pct(vendor.Count(r=>r.Status=="Ready")/(double)vendor.Count())</td></tr> }
+    </tbody></table></div><p class="muted">Grouped by the selected extracted vendor name, which may itself require review. Ready rate measures policy acceptance, not correctness.</p>
+</section>
+<section class="panel report-panel invoice-register">
+    <div class="panel-heading"><div><p class="eyebrow">REVIEW REGISTER</p><h2>From exceptions to answers.</h2></div><span class="badge">@Filtered.Count() invoices</span></div>
+    <div class="register-filters"><input aria-label="Search invoices or vendors" placeholder="Search file name or vendor…" @bind="search" @bind:event="oninput" @bind:after="FirstPage" /><select aria-label="Filter by status" @bind="status" @bind:after="FirstPage"><option value="">All statuses</option><option>Ready</option><option>Review</option><option>Failed</option><option>Ambiguous</option><option>Pending</option><option>Interrupted</option><option>BudgetExceeded</option></select></div>
+    <div class="table-wrap"><table><thead><tr><th>Source / vendor</th><th>Decision</th><th>Coverage</th><th>Confidence</th><th>Accepted fields</th><th>Passes</th><th></th></tr></thead><tbody>
+    @foreach(var row in Filtered.Skip(page*20).Take(20))
+    {
+        <tr><td><a class="invoice-link" href="@($"/executions/{row.Id}")">@row.SourcePath</a><small class="field-path">@(row.Vendor.Length == 0 ? "Vendor not extracted" : row.Vendor)</small></td><td><span class="decision-badge @row.Status.ToLowerInvariant()">@row.Status</span></td><td>@Pct(row.Coverage)</td><td>@Pct(row.MeanConfidence)</td><td>@row.AcceptedFields / @row.TargetCount</td><td>@row.Attempts</td><td><a href="@($"/executions/{row.Id}")" aria-label="@($"Inspect {row.SourcePath}")">Inspect →</a></td></tr>
+    }
+    </tbody></table></div>
+    @if(!Filtered.Any()) { <div class="empty-chart"><h3>No invoices in this view.</h3><p>Run the console with <code>plan</code>, then <code>extract</code>. Use <code>demo</code> to explore fictional examples.</p></div> }
+    <div class="pagination"><button disabled="@(page==0)" @onclick="() => page--">Previous</button><span>Page @(page+1) of @Pages</span><button disabled="@(page+1>=Pages)" @onclick="() => page++">Next</button></div>
+</section>
+@code {
+    private IReadOnlyList<BatchSummary> batches = [];
+    private IReadOnlyList<ExecutionSummary> rows = [];
+    private IReadOnlyList<FieldMetric> metrics = [];
+    private EvaluationReport? evaluation;
+    private string batch="",search="",status=""; private bool demo; private int page;
+    private string workspaceMode { get => demo ? "demo" : "real"; set => demo = value == "demo"; }
+    private IEnumerable<ExecutionSummary> Filtered => rows.Where(r => (status.Length==0 || r.Status==status) && (r.SourcePath.Contains(search,StringComparison.OrdinalIgnoreCase) || r.Vendor.Contains(search,StringComparison.OrdinalIgnoreCase)));
+    private int Pages => Math.Max(1,(int)Math.Ceiling(Filtered.Count()/20d));
+    private int TargetSlots => metrics.Sum(m => m.Invoices);
+    private int Scored => metrics.Sum(f => f.Scored);
+    private double? Mean => Scored == 0 ? null : metrics.Sum(f => (f.MeanConfidence ?? 0) * f.Scored) / Scored;
+    private double? Coverage => TargetSlots==0 ? null : metrics.Sum(m=>m.Present)/(double)TargetSlots;
+    private double? ReadyRate => rows.Count==0 ? null : rows.Count(r=>r.Status=="Ready")/(double)rows.Count;
+    private string ExportUrl => $"/downloads/business?demo={demo.ToString().ToLowerInvariant()}&batch={Uri.EscapeDataString(batch)}";
+    protected override void OnInitialized() { batches=Repository.ListBatches(); demo=!batches.Any(b=>!b.IsDemo)&&batches.Any(b=>b.IsDemo); Reload(); }
+    private void Reset() { batch=""; Reload(); }
+    private void FirstPage() => page=0;
+    private void Reload() { batches=Repository.ListBatches(); rows=Repository.ListExecutions(batch.Length==0?null:batch,demo:demo); metrics=Repository.FieldMetrics(batch.Length==0?null:batch,demo); evaluation=Evaluation.Run(Repository,"Test",demo); page=0; }
+    private static string Pct(double? value) => value.HasValue ? value.Value.ToString("P1") : "Not measured";
+    private static string Width(double value) => $"width:{(Math.Clamp(value,0,1)*100).ToString("0.##",System.Globalization.CultureInfo.InvariantCulture)}%";
+}

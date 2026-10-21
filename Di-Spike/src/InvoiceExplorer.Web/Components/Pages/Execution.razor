@@ -1,0 +1,72 @@
+@page "/executions/{Id:long}"
+@inject InvoiceRepository Repository
+<PageTitle>Invoice Explorer | Evidence and review</PageTitle>
+@if(execution is null)
+{ <section class="empty-state panel"><h1>Execution not found</h1><a href="/">Return to dashboard</a></section> }
+else
+{
+    <div class="breadcrumb"><a href="/">Quality dashboard</a><span>/</span><span>Execution #@Id</span></div>
+    <section class="page-heading"><div><p class="eyebrow">SOURCE DOCUMENT / @execution.Hash[..Math.Min(12,execution.Hash.Length)]</p><h1 class="document-title">@execution.SourcePath</h1><p class="subtitle">Batch @execution.BatchId · @Date(execution.StartedUtc)</p></div><span class="decision-badge large @execution.Status.ToLowerInvariant()">@execution.Status</span></section>
+    @if(execution.IsDemo) { <div class="notice demo"><b>FICTIONAL DEMO</b><span>Simulated extraction and confidence. No real PDF was processed.</span></div> }
+    @if(execution.Error is not null) { <div class="notice error">@execution.Error</div> }
+    <section class="panel report-panel execution-history"><div class="panel-heading"><h2>Execution history</h2><span class="muted">Oldest → newest · same original file hash</span></div><div class="timeline">@foreach(var h in history) { <a class="run-card @(h.Id==Id?"active":"")" href="@($"/executions/{h.Id}")"><span class="run-label">Execution #@h.Id</span><strong>@Pct(h.MeanConfidence)</strong><span>@h.Status · @h.Attempts passes</span><small>@Date(h.StartedUtc)</small></a> }</div></section>
+    <div class="evidence-layout">
+        <section class="source-column panel report-panel"><div class="panel-heading"><h2>Original source</h2>@if(!execution.IsDemo && execution.ArtifactPath.Length>0) { <a target="_blank" rel="noopener" href="@SourceUrl">Open PDF ↗</a> }</div>
+            @if(!execution.IsDemo && execution.ArtifactPath.Length>0) { <iframe class="source-pdf" title="Original invoice PDF" src="@SourceUrl"></iframe> }
+            else if(execution.IsDemo) { <div class="paper-placeholder"><span class="eyebrow">FICTIONAL SOURCE</span><h2>INVOICE</h2><div class="paper-rule"></div><p>@execution.Decision?.Fields.FirstOrDefault(f=>f.Name=="VendorName")?.Value</p><p>Example values for exploring the review workflow.</p><div class="paper-lines"></div><b>@execution.Decision?.Fields.FirstOrDefault(f=>f.Name=="InvoiceTotal")?.Value USD</b><small>No source PDF is attached to this simulated example.</small></div> }
+            else { <p class="muted">Source snapshot is not available. Inspect the processing error or resume the batch.</p> }
+            @if(execution.Profile is { } profile) { <dl class="report-facts"><div><dt>Document type</dt><dd>@profile.Kind</dd></div><div><dt>Pages / embedded images</dt><dd>@profile.Pages / @profile.ImageCount</dd></div><div><dt>Text layer characters</dt><dd>@profile.TextCharacters</dd></div></dl> }
+            <p class="muted">Source bytes are copied locally and verified by SHA-256. Review values against the original before labeling them.</p>
+        </section>
+        <div class="review-column">
+            <section class="panel report-panel"><div class="panel-heading"><div><p class="eyebrow">PIPELINE TRACE</p><h2>Every attempt is accountable.</h2></div></div>
+                <div class="pass-list">@foreach(var pass in attempts) { <a href="@($"/history?run={pass.RunId}")" class="pass-item"><span class="pass-number">@(attempts.ToList().IndexOf(pass)+1)</span><span><b>@pass.Strategy</b><small>Raw run #@pass.RunId · @pass.Status</small></span><span>Inspect →</span></a> }</div>
+                @if(execution.Decision is { } quality) { <div class="mini-kpis"><div><b>@Pct(quality.MeanConfidence)</b><span>Mean Azure score</span></div><div><b>@Pct(quality.Coverage)</b><span>Target coverage</span></div><div><b>@quality.AcceptedFields / @quality.Fields.Count</b><span>Fields meeting policy</span></div></div>
+                    @foreach(var issue in quality.Issues) { <div class="quality-issue @issue.Severity.ToLowerInvariant()"><b>@issue.Code</b><span>@issue.Message</span></div> }
+                }
+            </section>
+            <section class="panel report-panel"><div class="panel-heading"><h2>Business fields</h2><label class="compact-check"><input type="checkbox" @bind="exceptionsOnly" /> Exceptions only</label></div>
+                @if(execution.Decision is null) { <p>Results become available when this execution completes. Resume the batch in the console if it was interrupted.</p> }
+                @foreach(var f in execution.Decision?.Fields.Where(f=>!exceptionsOnly || f.State!="Accepted") ?? [])
+                {
+                    <div class="business-field @(selected?.Name==f.Name?"expanded":"")">
+                        <button class="field-select" @onclick="() => Select(f)"><span><b>@f.Name</b><small>@(f.Required?"Required":"Optional") · @f.State</small></span><span class="business-value">@(f.Value??"Not found")</span><span class="confidence @(f.State=="Accepted"?"high":"low")">@Pct(f.Confidence)</span></button>
+                        @if(selected?.Name==f.Name)
+                        {
+                            <div class="field-evidence"><p>@f.Reason</p><p class="muted">Threshold: @Pct(f.Threshold). Selected score is Azure's unmodified score from run #@f.SelectedRunId.</p>
+                                <table><thead><tr><th>Pass / source</th><th>Candidate</th><th>Confidence</th></tr></thead><tbody>@foreach(var c in f.Candidates) { <tr><td><a href="@($"/history?run={c.RunId}")">@c.Strategy · #@c.RunId</a><small class="field-path">@(c.Derived?"Structured attribute; no separate score":"Direct model field")</small></td><td>@c.Value<details><summary>Source evidence</summary><p>@c.Content</p><pre>@c.Evidence</pre></details></td><td>@Pct(c.Confidence)</td></tr> }</tbody></table>
+                                <div class="label-editor"><h3>Record a verified reference value</h3><p class="muted">This adds a benchmark label. It does not overwrite the machine extraction or increase its confidence.</p>
+                                    <label><input type="checkbox" @bind="labelPresent" /> This field is present on the original invoice</label>
+                                    @if(labelPresent) { <label>Verified value<input @bind="labelValue" @bind:event="oninput" placeholder="Read from the original; ISO dates and decimal amounts" /></label> }
+                                    <div class="label-columns"><label>Reviewer<input @bind="reviewer" @bind:event="oninput" placeholder="Your name" /></label><label>Dataset split<select @bind="split"><option>Test</option><option>Calibration</option></select></label></div>
+                                    <label>Review notes<input @bind="notes" @bind:event="oninput" placeholder="Optional rationale or source reference" /></label>
+                                    <button class="button primary" @onclick="SaveLabel">Save verified label</button>
+                                    @if(message.Length>0) { <p role="status" class="review-message">@message</p> }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </section>
+            <section class="panel report-panel"><div class="panel-heading"><h2>Review audit trail</h2><span class="badge">@labels.Count entries</span></div>
+                @if(labels.Count==0) { <p class="muted">No verified labels yet. Select a field above to record one.</p> }
+                @foreach(var label in labels.Take(30)) { <div class="audit-entry"><b>@label.Field: @(label.Present?label.ExpectedValue:"Verified absent")</b><span>@label.Reviewer · @label.Split · @Date(label.CreatedUtc)</span><small>@label.Notes</small></div> }
+            </section>
+        </div>
+    </div>
+}
+@code {
+    [Parameter] public long Id { get; set; }
+    private PipelineExecution? execution; private IReadOnlyList<PipelineAttempt> attempts=[]; private IReadOnlyList<ExecutionSummary> history=[]; private IReadOnlyList<ReviewLabel> labels=[];
+    private FieldDecision? selected; private bool exceptionsOnly,labelPresent=true; private string labelValue="",reviewer="",split="Test",notes="",message="";
+    private string SourceUrl => $"/sources/executions/{Id}#toolbar=1&view=FitH";
+    protected override void OnParametersSet() { execution=Repository.GetExecution(Id); if(execution is null)return; attempts=Repository.GetAttempts(Id); history=Repository.ListExecutions(latestOnly:false,demo:execution.IsDemo).Where(e=>e.Hash==execution.Hash).OrderBy(e=>e.Id).ToArray(); labels=Repository.GetLabels(execution.Hash,true); selected=null; }
+    private void Select(FieldDecision field) { selected=selected?.Name==field.Name?null:field; labelValue=""; labelPresent=true; message=""; notes=""; split=labels.FirstOrDefault()?.Split??"Test"; }
+    private void SaveLabel()
+    {
+        try { Repository.AddLabel(execution!.Hash,selected!.Name,labelValue,labelPresent,reviewer,split,notes); labels=Repository.GetLabels(execution.Hash,true); message="Verified label saved. Machine output is unchanged."; }
+        catch(ArgumentException ex) { message=ex.Message; }
+    }
+    private static string Pct(double? value)=>value.HasValue?value.Value.ToString("P1"):"No score";
+    private static string Date(string value)=>DateTimeOffset.Parse(value).ToLocalTime().ToString("MMM d, yyyy HH:mm");
+}

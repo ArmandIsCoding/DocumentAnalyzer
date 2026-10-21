@@ -1,0 +1,13 @@
+{
+  "Provider": "DocumentIntelligence",
+  "Endpoint": "",
+  "ApiKey": "",
+  "ModelId": "prebuilt-invoice",
+  "Tier": "F0",
+  "InputDirectory": "invoices",
+  "FilePattern": "invoice_*.pdf",
+  "DatabasePath": "data/invoices.db",
+  "ExportDirectory": "exports",
+  "MaxDocuments": 1,
+  "TimeoutSeconds": 300
+}

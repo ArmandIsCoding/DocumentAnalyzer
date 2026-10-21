@@ -1,0 +1,178 @@
+@page "/history"
+@inject InvoiceRepository Repository
+<PageTitle>Invoice Explorer · Extractions</PageTitle>
+
+<section class="page-heading">
+    <div><p class="eyebrow">DOCUMENTS / EXTRACTIONS</p><h1>Every invoice, its complete history.</h1><p class="subtitle">Explore extracted data and see how it changes across runs.</p></div>
+    <button class="button secondary" @onclick="Reload">↻ Refresh</button>
+</section>
+<div class="stats">
+    <div><span>Processed invoices</span><strong>@invoices.Count(i => !i.IsDemo)</strong></div>
+    <div><span>Extraction runs</span><strong>@invoices.Where(i => !i.IsDemo).Sum(i => i.RunCount)</strong></div>
+    <div><span>Demo invoices</span><strong>@invoices.Count(i => i.IsDemo)</strong></div>
+    <div class="stats-note"><span class="status-dot"></span><span>Saved history<br /><b>Every run is preserved</b></span></div>
+</div>
+@if (invoices.Count == 0)
+{
+    <section class="empty-state panel"><div class="empty-icon">▤</div><h2>Ready for your first invoice</h2>
+        <p>Configure your Azure endpoint and key, then run the console application.</p>
+        <code>dotnet run --project src/InvoiceExplorer.Cli -- extract</code>
+        <p>To explore the interface without Azure, run <code>demo</code> and then click Refresh.</p>
+    </section>
+}
+else
+{
+    <div class="workspace">
+        <aside class="invoice-list panel">
+            <div class="panel-heading"><h2>Invoices</h2><span class="count">@invoices.Count</span></div>
+            <label class="search-label" for="invoice-search">Search files</label>
+            <input id="invoice-search" placeholder="Invoice file name…" @bind="invoiceSearch" @bind:event="oninput" @bind:after="ResetPage" />
+            <div class="invoice-items">
+            @foreach (var invoice in FilteredInvoices.Skip(page * 12).Take(12))
+            {
+                <button class="invoice-item @(selectedInvoice?.Id == invoice.Id ? "active" : "")" @onclick="() => SelectInvoice(invoice)">
+                    <span class="file-icon">▤</span><span class="invoice-info"><strong>@invoice.FileName</strong>
+                    <span>@invoice.RunCount runs · @(invoice.IsDemo ? "DEMO" : Status(invoice.LastStatus))</span></span>
+                    <span class="item-arrow">›</span>
+                </button>
+            }
+            </div>
+            @if (!FilteredInvoices.Any()) { <p class="muted">No invoices match this name.</p> }
+            <div class="pagination"><button disabled="@(page == 0)" @onclick="() => page--" aria-label="Previous page">←</button><span>@(page + 1) / @PageCount</span><button disabled="@(page + 1 >= PageCount)" @onclick="() => page++" aria-label="Next page">→</button></div>
+        </aside>
+        <section class="details-area">
+        @if (selectedInvoice is not null && details is not null)
+        {
+            @if (selectedInvoice.IsDemo)
+            {
+                <div class="notice demo"><b>DEMO</b><span>Fictional invoice. Values and confidence scores are simulated, not extracted from your PDFs or Azure.</span></div>
+            }
+            <div class="document-heading"><div><p class="eyebrow">INVOICE #@selectedInvoice.Id</p><h2>@selectedInvoice.FileName</h2></div><span class="badge">@runs.Count runs</span></div>
+            <section class="panel timeline-panel">
+                <div class="panel-heading"><h3>Extraction history</h3><span class="muted">Oldest → newest · UTC−3</span></div>
+                <div class="timeline">
+                @foreach (var run in runs)
+                {
+                    <button class="run-card @(details.Run.Id == run.Id ? "active" : "")" @onclick="() => SelectRun(run.Id)">
+                        <span class="run-label">Run #@run.Id <span class="run-dot"></span></span>
+                        <strong>@Percent(run.OverallConfidence)</strong><span class="run-date">@Date(run.StartedUtc)</span>
+                        <span class="run-status">@Status(run.Status)</span>
+                    </button>
+                }
+                </div>
+            </section>
+            <section class="panel extraction-panel">
+                <div class="extraction-heading"><div><p class="eyebrow">RUN #@details.Run.Id</p><h2>Extraction results</h2><p class="muted">@details.Run.Provider · @details.Run.ModelId · API @details.Run.ApiVersion</p></div>
+                    @if (details.Run.Status == "Succeeded")
+                    {
+                        <div class="download-actions"><a class="button secondary" href="@($"/downloads/runs/{details.Run.Id}/json")" download>JSON</a><a class="button primary" href="@($"/downloads/runs/{details.Run.Id}/csv")" download>↓ Download CSV</a></div>
+                    }
+                </div>
+                @if (details.Run.Error is not null) { <div class="notice error" role="alert">@details.Run.Error</div> }
+                @if (details.Run.Status == "Running") { <div class="notice">This run is pending. If the console was closed unexpectedly, its status may be out of date. Click Refresh to check again.</div> }
+                @if (!details.Run.IsDemo && details.Run.Pages.Length > 0) { <div class="notice">Analysis limited to pages @details.Run.Pages. The remaining pages are not included.</div> }
+                <div class="confidence-summary">
+                    <div class="overall"><span>Overall confidence <small>calculated</small></span><strong>@Percent(details.Run.OverallConfidence)</strong></div>
+                    <div class="confidence-description"><b>@details.Run.ConfidenceCount of @details.Run.LeafCount fields with confidence scores</b><p>Simple average of leaf fields, excluding containers and OCR. “Not available” does not mean 0%.</p><span>Document classification: @Percent(details.Run.DocumentConfidence)</span></div>
+                </div>
+                <div class="tabs" role="tablist" aria-label="Extraction view">
+                    <button role="tab" aria-selected="@(tab == "fields")" class="@(tab == "fields" ? "selected" : "")" @onclick='() => tab = "fields"'>Extracted fields <span>@details.Fields.Count</span></button>
+                    <button role="tab" aria-selected="@(tab == "text")" class="@(tab == "text" ? "selected" : "")" @onclick='() => tab = "text"'>Full text</button>
+                    <button role="tab" aria-selected="@(tab == "json")" class="@(tab == "json" ? "selected" : "")" @onclick='() => tab = "json"'>Original JSON</button>
+                </div>
+                @if (tab == "fields")
+                {
+                    <div class="field-toolbar">
+                        <label>Search fields<input placeholder="Name or value…" @bind="fieldSearch" @bind:event="oninput" /></label>
+                        <label>Content<select @bind="category"><option value="Field">Invoice fields</option><option value="Table">Tables</option><option value="KeyValue">Key-value pairs</option><option value="OCR">OCR and marks</option><option value="All">All</option></select></label>
+                        <label>Compare with<select @bind="compareId" @bind:after="LoadComparison"><option value="0">No comparison</option>@foreach (var r in runs.Where(r => r.Id != details.Run.Id)) { <option value="@r.Id">Run #@r.Id · @Status(r.Status)</option> }</select></label>
+                    </div>
+                    <div class="table-options"><label><input type="checkbox" @bind="onlyLow" /> Only confidence below 90% or unavailable</label><span>@FilteredFields.Count() records</span></div>
+                    <div class="table-wrap"><table><thead><tr><th>Field / path</th><th>Extracted value</th><th>Confidence</th>@if (comparison is not null) { <th>Run #@comparison.Run.Id</th> }</tr></thead><tbody>
+                    @foreach (var field in FilteredFields.Take(visibleFields))
+                    {
+                        var old = comparison?.Fields.FirstOrDefault(f => f.Path == field.Path && f.Category == field.Category);
+                        <tr class="@(old is not null && old.Value != field.Value ? "changed" : "")">
+                            <td><strong>@ShortName(field.Path)</strong><small class="field-path">@field.Path</small><small class="type-label">@field.Type</small></td>
+                            <td class="field-value">@field.Value</td>
+                            <td><span class="confidence @ConfidenceClass(field.Confidence)">@Percent(field.Confidence)</span>@if (field.Confidence.HasValue) { <div class="confidence-track"><span style="@($"width:{(field.Confidence.Value * 100).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}%")"></span></div> }</td>
+                            @if (comparison is not null) { <td class="comparison-cell">@(old?.Value ?? "Field not present")<small>@Percent(old?.Confidence)</small>@if (old is not null && old.Value != field.Value) { <span class="change-label">Value changed</span> }</td> }
+                        </tr>
+                    }
+                    </tbody></table></div>
+                    @if (!FilteredFields.Any()) { <p class="table-empty">No fields match these filters.</p> }
+                    @if (FilteredFields.Count() > visibleFields) { <button class="button secondary load-more" @onclick="() => visibleFields += 100">Show 100 more</button> }
+                    @if (comparison is not null)
+                    {
+                        var missing = comparison.Fields.Where(f => f.IsLeaf && !details.Fields.Any(current => current.Path == f.Path && current.Category == f.Category)).ToList();
+                        @if (missing.Count > 0) { <details class="missing-fields"><summary>@missing.Count fields found only in the comparison run</summary>@foreach (var field in missing) { <p><code>@field.Path</code> · @field.Value · @Percent(field.Confidence)</p> }</details> }
+                    }
+                }
+                else if (tab == "text") { <pre class="source-view">@(details.FullText.Length == 0 ? "No text is available for this run." : details.FullText)</pre> }
+                else { <pre class="source-view">@PrettyJson(details.RawJson)</pre> }
+            </section>
+        }
+        </section>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<InvoiceSummary> invoices = [];
+    private IReadOnlyList<ExtractionRun> runs = [];
+    private InvoiceSummary? selectedInvoice;
+    private RunDetails? details, comparison;
+    private string invoiceSearch = "", fieldSearch = "", category = "Field", tab = "fields";
+    private int page, visibleFields = 100;
+    private long compareId;
+    private bool onlyLow;
+    private IEnumerable<InvoiceSummary> FilteredInvoices => invoices.Where(i => i.FileName.Contains(invoiceSearch, StringComparison.OrdinalIgnoreCase));
+    private int PageCount => Math.Max(1, (int)Math.Ceiling(FilteredInvoices.Count() / 12d));
+    private IEnumerable<ExtractedField> FilteredFields => (details?.Fields ?? []).Where(f => f.IsLeaf &&
+        (category == "All" || f.Category == category) && (!onlyLow || f.Confidence is null or < .9) &&
+        (f.Path.Contains(fieldSearch, StringComparison.OrdinalIgnoreCase) || f.Value.Contains(fieldSearch, StringComparison.OrdinalIgnoreCase)));
+    [SupplyParameterFromQuery(Name = "run")] public long? RequestedRun { get; set; }
+    protected override void OnInitialized()
+    {
+        Reload();
+        if (RequestedRun is { } runId && Repository.GetRun(runId) is { } run)
+        {
+            var invoice = invoices.FirstOrDefault(i => i.Id == run.Run.InvoiceId);
+            if (invoice is not null) { SelectInvoice(invoice); SelectRun(runId); }
+        }
+    }
+    private void Reload()
+    {
+        invoices = Repository.ListInvoices();
+        page = Math.Min(page, PageCount - 1);
+        var invoice = invoices.FirstOrDefault(i => i.Id == selectedInvoice?.Id) ?? invoices.FirstOrDefault();
+        if (invoice is not null) SelectInvoice(invoice);
+    }
+    private void ResetPage() => page = 0;
+    private void SelectInvoice(InvoiceSummary invoice)
+    {
+        selectedInvoice = invoice;
+        runs = Repository.ListRuns(invoice.Id);
+        fieldSearch = ""; category = "Field"; onlyLow = false;
+        if (runs.Count > 0) SelectRun(runs[^1].Id);
+    }
+    private void SelectRun(long id)
+    {
+        details = Repository.GetRun(id);
+        var index = runs.ToList().FindIndex(r => r.Id == id);
+        compareId = index > 0 ? runs[index - 1].Id : 0;
+        LoadComparison(); visibleFields = 100;
+    }
+    private void LoadComparison() => comparison = compareId == 0 ? null : Repository.GetRun(compareId);
+    private static string Percent(double? value) => value.HasValue ? (value.Value * 100).ToString("0.0", System.Globalization.CultureInfo.GetCultureInfo("en-US")) + "%" : "Not available";
+    private static string ConfidenceClass(double? value) => value is null ? "unknown" : value >= .9 ? "high" : value >= .75 ? "medium" : "low";
+    private static string Date(string value) => DateTimeOffset.Parse(value).ToOffset(TimeSpan.FromHours(-3)).ToString("MMM d, yyyy · HH:mm:ss", System.Globalization.CultureInfo.GetCultureInfo("en-US"));
+    private static string ShortName(string path) => path[(path.LastIndexOf('.') + 1)..];
+    private static string Status(string value) => value switch { "Succeeded" => "Completed", "Failed" => "Error", "Running" => "In progress", "Cancelled" => "Cancelled", "TimedOut" => "Timed out", _ => value };
+    private static string PrettyJson(string value)
+    {
+        if (value.Length == 0) return "No response is available.";
+        using var doc = System.Text.Json.JsonDocument.Parse(value);
+        return System.Text.Json.JsonSerializer.Serialize(doc, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+    }
+}
+

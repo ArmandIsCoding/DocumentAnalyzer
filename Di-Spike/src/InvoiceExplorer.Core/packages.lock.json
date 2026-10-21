@@ -1,0 +1,150 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "Microsoft.Data.Sqlite": {
+        "type": "Direct",
+        "requested": "[10.0.13, )",
+        "resolved": "10.0.13",
+        "contentHash": "w37nz3WFmDtRfXxWEwIXX2OgqDRiwhD1JGbFwfpFCF8GkCrV/yO6Y2JF5058J2RGoI2sCcdn02wrk0yEcekWcw==",
+        "dependencies": {
+          "Microsoft.Data.Sqlite.Core": "10.0.13",
+          "SQLitePCLRaw.bundle_e_sqlite3": "2.1.13",
+          "SQLitePCLRaw.core": "2.1.13"
+        }
+      },
+      "PdfPig": {
+        "type": "Direct",
+        "requested": "[0.1.16, )",
+        "resolved": "0.1.16",
+        "contentHash": "qQcbsNMYVY+K5ELptax2S8thNMk0+rSQq3H/KdYj3LLcko8yTCz8y5KIvsKxIyAuTN0ZYNnfsZkM+0EvxTwHVA=="
+      },
+      "PDFtoImage": {
+        "type": "Direct",
+        "requested": "[5.4.0, )",
+        "resolved": "5.4.0",
+        "contentHash": "2eb8rDolYj9B7O87RpuqRG6oA6jEHV7z5PcBHmIP2KD75HNwJDxR91sXIYEh5DCCuvNxtSXtN8Bllfmma3RWBg==",
+        "dependencies": {
+          "SkiaSharp": "4.150.1",
+          "SkiaSharp.NativeAssets.Linux.NoDependencies": "4.150.1",
+          "SkiaSharp.NativeAssets.Win32": "4.150.1",
+          "SkiaSharp.NativeAssets.macOS": "4.150.1",
+          "bblanchon.PDFium.Linux": "152.0.7961",
+          "bblanchon.PDFium.Win32": "152.0.7961",
+          "bblanchon.PDFium.macOS": "152.0.7961"
+        }
+      },
+      "bblanchon.PDFium.Linux": {
+        "type": "Transitive",
+        "resolved": "152.0.7961",
+        "contentHash": "80m1PwszVp53avI/l+BCov8/6jl7B2FU+hQNTSrApMrkwKcCSRDHkXYYrGYsxpc8NAs/44tyrEQdCfX1yRzPhw=="
+      },
+      "bblanchon.PDFium.macOS": {
+        "type": "Transitive",
+        "resolved": "152.0.7961",
+        "contentHash": "GaBNtpfoiYbXTi9WLeEWSxWi2zG9kJMfuDMF7AH4kK0zjXz3C/Qg9epKIZKN3nfPaS48Qy3uV2VM14QBI/iAGg=="
+      },
+      "bblanchon.PDFium.Win32": {
+        "type": "Transitive",
+        "resolved": "152.0.7961",
+        "contentHash": "E6m7Y/OZ/eySQBy4drjDCF6pspBdp2PaF6vC04K1BgGbS8UtXOdL0SnReg3zE309hBZ6U/ZDMys9QE5VhBzDDQ=="
+      },
+      "Microsoft.Data.Sqlite.Core": {
+        "type": "Transitive",
+        "resolved": "10.0.13",
+        "contentHash": "Gge8XsSCOwcbkbdmt2UDAe6kIv9Q0vA6yb3wsTStjjexaMFLTWfc/1gH4kbhJ+zWiXRTRA4lG2sOQNVfir204w==",
+        "dependencies": {
+          "SQLitePCLRaw.core": "2.1.13"
+        }
+      },
+      "SkiaSharp": {
+        "type": "Transitive",
+        "resolved": "4.150.1",
+        "contentHash": "5v3T8X1N62Dp+AkPO70GNBNS/NRBPGMOTiN+Prg33sZAcm/Ug3YOAH+3RTj/jxJV8NGTJs2idGpC2Qdae2mGLQ==",
+        "dependencies": {
+          "SkiaSharp.NativeAssets.Win32": "4.150.1",
+          "SkiaSharp.NativeAssets.macOS": "4.150.1"
+        }
+      },
+      "SkiaSharp.NativeAssets.Linux.NoDependencies": {
+        "type": "Transitive",
+        "resolved": "4.150.1",
+        "contentHash": "2KVadgDky2xQw7lEMRT/u0ftX5K1u8X7MhCN47Em22Z6VM6JJg1c9cwfGuSPAt1oY6+GjGHH18vkeev+nqT9Kw=="
+      },
+      "SkiaSharp.NativeAssets.macOS": {
+        "type": "Transitive",
+        "resolved": "4.150.1",
+        "contentHash": "r755HVwaHZhyf1clWjrM2/RoOZYCzkQEmE9pu/mVsebPejWu52niNPUwtfyf112qoF0PIk6OndqVOUoITj6TwQ=="
+      },
+      "SkiaSharp.NativeAssets.Win32": {
+        "type": "Transitive",
+        "resolved": "4.150.1",
+        "contentHash": "qrLSL8OonbkMJdSH8heK0Jl39Y2xxZGdd7Ru4cyBXk2ITdx+Fu1sCFLmvCKmnMaYs//mlN/YSpSpOurEXErcQw=="
+      },
+      "SQLitePCLRaw.bundle_e_sqlite3": {
+        "type": "Transitive",
+        "resolved": "2.1.13",
+        "contentHash": "NlDixlC7uHmo+ojXRgkNvN0tQtVGpLDZ3x2OpgNj+G07VHh5cXSszFDrAiC4BpUiPwkcaeuQkMV9WQ123xVtmQ==",
+        "dependencies": {
+          "SQLitePCLRaw.lib.e_sqlite3": "2.1.13",
+          "SQLitePCLRaw.provider.e_sqlite3": "2.1.13"
+        }
+      },
+      "SQLitePCLRaw.core": {
+        "type": "Transitive",
+        "resolved": "2.1.13",
+        "contentHash": "2joofoinuHBFs0nMX3nKuXgxpXryRkCOdM2Ua6HBqQLLy6IW+5f28ZI+HAvMyF8vG7XfNz/lwfBfE6V4juru8Q=="
+      },
+      "SQLitePCLRaw.lib.e_sqlite3": {
+        "type": "Transitive",
+        "resolved": "2.1.13",
+        "contentHash": "D2UAuiGxFYBqeRXjjjGgvJ5UQifzn6wefmSqeKU7XcNGKLbJRP6X7kcPZ6opOBJGdCIlgbSxTvDpBbLvsN594A=="
+      },
+      "SQLitePCLRaw.provider.e_sqlite3": {
+        "type": "Transitive",
+        "resolved": "2.1.13",
+        "contentHash": "ZU60dSqoSNRe49KcQDUmOVgdRtjITOssVXFtiISs+zJXDI4D2Sndwpn2NOtzDQNPu0ZAvpoLPQ+GLKv6iEZn8Q==",
+        "dependencies": {
+          "SQLitePCLRaw.core": "2.1.13"
+        }
+      }
+    },
+    "net10.0/win-x64": {
+      "bblanchon.PDFium.Linux": {
+        "type": "Transitive",
+        "resolved": "152.0.7961",
+        "contentHash": "80m1PwszVp53avI/l+BCov8/6jl7B2FU+hQNTSrApMrkwKcCSRDHkXYYrGYsxpc8NAs/44tyrEQdCfX1yRzPhw=="
+      },
+      "bblanchon.PDFium.macOS": {
+        "type": "Transitive",
+        "resolved": "152.0.7961",
+        "contentHash": "GaBNtpfoiYbXTi9WLeEWSxWi2zG9kJMfuDMF7AH4kK0zjXz3C/Qg9epKIZKN3nfPaS48Qy3uV2VM14QBI/iAGg=="
+      },
+      "bblanchon.PDFium.Win32": {
+        "type": "Transitive",
+        "resolved": "152.0.7961",
+        "contentHash": "E6m7Y/OZ/eySQBy4drjDCF6pspBdp2PaF6vC04K1BgGbS8UtXOdL0SnReg3zE309hBZ6U/ZDMys9QE5VhBzDDQ=="
+      },
+      "SkiaSharp.NativeAssets.Linux.NoDependencies": {
+        "type": "Transitive",
+        "resolved": "4.150.1",
+        "contentHash": "2KVadgDky2xQw7lEMRT/u0ftX5K1u8X7MhCN47Em22Z6VM6JJg1c9cwfGuSPAt1oY6+GjGHH18vkeev+nqT9Kw=="
+      },
+      "SkiaSharp.NativeAssets.macOS": {
+        "type": "Transitive",
+        "resolved": "4.150.1",
+        "contentHash": "r755HVwaHZhyf1clWjrM2/RoOZYCzkQEmE9pu/mVsebPejWu52niNPUwtfyf112qoF0PIk6OndqVOUoITj6TwQ=="
+      },
+      "SkiaSharp.NativeAssets.Win32": {
+        "type": "Transitive",
+        "resolved": "4.150.1",
+        "contentHash": "qrLSL8OonbkMJdSH8heK0Jl39Y2xxZGdd7Ru4cyBXk2ITdx+Fu1sCFLmvCKmnMaYs//mlN/YSpSpOurEXErcQw=="
+      },
+      "SQLitePCLRaw.lib.e_sqlite3": {
+        "type": "Transitive",
+        "resolved": "2.1.13",
+        "contentHash": "D2UAuiGxFYBqeRXjjjGgvJ5UQifzn6wefmSqeKU7XcNGKLbJRP6X7kcPZ6opOBJGdCIlgbSxTvDpBbLvsN594A=="
+      }
+    }
+  }
+}

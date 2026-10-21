@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/InvoiceExplorer.Cli/InvoiceExplorer.Cli.csproj" />
+    <Project Path="src/InvoiceExplorer.Core/InvoiceExplorer.Core.csproj" />
+    <Project Path="src/InvoiceExplorer.Web/InvoiceExplorer.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/InvoiceExplorer.Tests/InvoiceExplorer.Tests.csproj" />
+  </Folder>
+</Solution>

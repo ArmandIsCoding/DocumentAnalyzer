@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup>
+    <Deterministic>true</Deterministic>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <!-- Keep lock files stable between normal builds and Windows portable publication. -->
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+  </PropertyGroup>
+</Project>
